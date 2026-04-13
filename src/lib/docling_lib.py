@@ -1,0 +1,137 @@
+from pathlib import Path
+from typing import Callable
+
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling_core.types.doc import ImageRefMode, PictureItem
+from langchain_core.documents import Document
+
+
+def _build_docling_converter() -> DocumentConverter:
+    pdf_pipeline_options = PdfPipelineOptions()
+    pdf_pipeline_options.generate_page_images = True
+    pdf_pipeline_options.generate_picture_images = True
+    pdf_pipeline_options.images_scale = 2.0
+
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options)
+        }
+    )
+
+
+def _chunk_text(
+    text: str, chunk_size: int = 1800, chunk_overlap: int = 250
+) -> list[str]:
+    if chunk_size <= chunk_overlap:
+        raise ValueError("chunk_size must be greater than chunk_overlap")
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + chunk_size)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end == len(text):
+            break
+        start = end - chunk_overlap
+    return chunks
+
+
+def docling_pdf_extractor(
+    file_path: str,
+    artifacts_root: str | Path = "data/artifacts",
+    image_describer: Callable[[Path, str], str] | None = None,
+    chunk_size: int = 1800,
+    chunk_overlap: int = 250,
+) -> list[Document]:
+    converter = _build_docling_converter()
+    conv_res = converter.convert(file_path)
+
+    doc_filename = conv_res.input.file.stem
+    artifacts_root_path = Path(artifacts_root)
+    markdown_dir = artifacts_root_path / "markdown" / doc_filename
+    image_output_dir = artifacts_root_path / "images" / doc_filename
+    markdown_dir.mkdir(parents=True, exist_ok=True)
+    image_output_dir.mkdir(parents=True, exist_ok=True)
+
+    md_filename = markdown_dir / f"{doc_filename}.md"
+    conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.REFERENCED)
+    full_markdown = conv_res.document.export_to_markdown()
+
+    documents: list[Document] = []
+
+    markdown_chunks = _chunk_text(
+        text=full_markdown,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+
+    for idx, chunk in enumerate(markdown_chunks, start=1):
+        documents.append(
+            Document(
+                page_content=chunk,
+                metadata={
+                    "source": file_path,
+                    "doc_id": doc_filename,
+                    "type": "text_chunk",
+                    "chunk_id": idx,
+                    "chunk_total": len(markdown_chunks),
+                    "markdown_path": str(md_filename),
+                },
+            )
+        )
+
+    picture_counter = 0
+    for element, _level in conv_res.document.iterate_items():
+        if not isinstance(element, PictureItem):
+            continue
+
+        picture_image = element.get_image(conv_res.document)
+        if picture_image is None:
+            continue
+
+        picture_counter += 1
+        element_image_filename = (
+            image_output_dir / f"{doc_filename}-picture-{picture_counter}.png"
+        )
+        picture_image.save(element_image_filename, "PNG")
+
+        caption = element.caption_text(conv_res.document).strip()
+        picture_description = ""
+        if image_describer is not None:
+            try:
+                picture_description = image_describer(element_image_filename, caption)
+            except Exception as err:  # noqa: BLE001
+                picture_description = f"Image description failed: {err}"
+
+        page_no = element.prov[0].page_no if element.prov else None
+        image_context_parts = [
+            f"Image extracted from: {file_path}",
+            f"Image path: {element_image_filename}",
+            f"Page: {page_no if page_no is not None else 'unknown'}",
+        ]
+        if caption:
+            image_context_parts.append(f"Caption: {caption}")
+        else:
+            image_context_parts.append("Caption: No caption available.")
+        if picture_description:
+            image_context_parts.append(f"Visual description: {picture_description}")
+
+        documents.append(
+            Document(
+                page_content="\n".join(image_context_parts),
+                metadata={
+                    "source": file_path,
+                    "doc_id": doc_filename,
+                    "type": "image",
+                    "path": str(element_image_filename),
+                    "page": page_no,
+                    "caption": caption,
+                },
+            )
+        )
+
+    return documents
