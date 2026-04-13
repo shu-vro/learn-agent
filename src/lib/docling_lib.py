@@ -143,6 +143,7 @@ def _chunk_text(
     return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
+# the extractor takes a massive amount of time (200+s for 15 page)
 @measure_time
 def docling_pdf_extractor(
     file_path: str,
@@ -152,169 +153,207 @@ def docling_pdf_extractor(
     chunk_size: int = 1800,
     chunk_overlap: int = 250,
 ) -> list[Document]:
-    converter = _build_docling_converter()
-    conv_res = converter.convert(file_path)
-
-    doc_filename = conv_res.input.file.stem
-    artifacts_root_path = Path(artifacts_root)
-    markdown_dir = artifacts_root_path / "markdown" / doc_filename
-    image_output_dir = artifacts_root_path / "images" / doc_filename
-    formula_output_dir = artifacts_root_path / "formulas" / doc_filename
-    markdown_dir.mkdir(parents=True, exist_ok=True)
-    image_output_dir.mkdir(parents=True, exist_ok=True)
-    formula_output_dir.mkdir(parents=True, exist_ok=True)
-
-    md_filename = markdown_dir / f"{doc_filename}.md"
-    conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.REFERENCED)
-    full_markdown = md_filename.read_text(encoding="utf-8")
-
+    time_tracker: dict[str, float] = {}
     documents: list[Document] = []
 
-    formula_counter = 0
-    formula_placeholder_replacements: list[str] = []
-    for element, _level in conv_res.document.iterate_items():
-        if not isinstance(element, FormulaItem):
-            continue
+    with measure_time("total_extraction", tracker=time_tracker):
+        with measure_time("converter_build_time", tracker=time_tracker):
+            converter = _build_docling_converter()
+            conv_res = converter.convert(file_path)
 
-        formula_text = _sanitize_latex_expression((element.text or "").strip())
-        formula_orig = (element.orig or "").strip()
-        had_placeholder = not formula_text and bool(formula_orig)
+        doc_filename = conv_res.input.file.stem
+        artifacts_root_path = Path(artifacts_root)
+        markdown_dir = artifacts_root_path / "markdown" / doc_filename
+        image_output_dir = artifacts_root_path / "images" / doc_filename
+        formula_output_dir = artifacts_root_path / "formulas" / doc_filename
+        markdown_dir.mkdir(parents=True, exist_ok=True)
+        image_output_dir.mkdir(parents=True, exist_ok=True)
+        formula_output_dir.mkdir(parents=True, exist_ok=True)
 
-        formula_image_path: str | None = None
-        formula_image = element.get_image(conv_res.document)
-        if formula_image is not None:
-            formula_image_filename = (
-                formula_output_dir / f"{doc_filename}-formula-{formula_counter + 1}.png"
+        md_filename = markdown_dir / f"{doc_filename}.md"
+
+        with measure_time("markdown_export", tracker=time_tracker):
+            conv_res.document.save_as_markdown(
+                md_filename,
+                image_mode=ImageRefMode.REFERENCED,
             )
-            formula_image.save(formula_image_filename, "PNG")
-            formula_image_path = str(formula_image_filename)
+            full_markdown = md_filename.read_text(encoding="utf-8")
 
-            if not formula_text and formula_transcriber is not None:
-                try:
-                    transcribed = formula_transcriber(
-                        formula_image_filename, formula_orig
+        formula_counter = 0
+        processed_formula_counter = 0
+        formula_placeholder_replacements: list[str] = []
+
+        with measure_time("formula_processing", tracker=time_tracker):
+            for element, _level in conv_res.document.iterate_items():
+                if not isinstance(element, FormulaItem):
+                    continue
+
+                processed_formula_counter += 1
+                with measure_time(
+                    f"formula_processing_{processed_formula_counter}",
+                    tracker=time_tracker,
+                ):
+                    formula_text = _sanitize_latex_expression(
+                        (element.text or "").strip()
                     )
-                    if transcribed:
-                        formula_text = _sanitize_latex_expression(transcribed)
-                except Exception:  # noqa: BLE001
-                    pass
+                    formula_orig = (element.orig or "").strip()
+                    had_placeholder = not formula_text and bool(formula_orig)
 
-        if not formula_text and not formula_orig:
-            continue
+                    formula_image_path: str | None = None
+                    formula_image = element.get_image(conv_res.document)
+                    if formula_image is not None:
+                        formula_image_filename = (
+                            formula_output_dir
+                            / f"{doc_filename}-formula-{formula_counter + 1}.png"
+                        )
+                        formula_image.save(formula_image_filename, "PNG")
+                        formula_image_path = str(formula_image_filename)
 
-        formula_counter += 1
-        page_no = element.prov[0].page_no if element.prov else None
-        if formula_text:
-            page_content = f"Formula LaTeX: {formula_text}"
-            formula_status = "transcribed" if had_placeholder else "decoded"
-        else:
-            page_content = f"Formula source (not decoded): {formula_orig}"
-            formula_status = "not_decoded"
+                        if not formula_text and formula_transcriber is not None:
+                            try:
+                                transcribed = formula_transcriber(
+                                    formula_image_filename,
+                                    formula_orig,
+                                )
+                                if transcribed:
+                                    formula_text = _sanitize_latex_expression(
+                                        transcribed
+                                    )
+                            except Exception:  # noqa: BLE001
+                                pass
 
-        if had_placeholder and formula_text:
-            formula_placeholder_replacements.append(formula_text)
+                    if not formula_text and not formula_orig:
+                        continue
 
-        documents.append(
-            Document(
-                page_content=page_content,
-                metadata={
-                    "source": file_path,
-                    "doc_id": doc_filename,
-                    "type": "formula",
-                    "formula_id": formula_counter,
-                    "formula_status": formula_status,
-                    "page": page_no,
-                    "path": formula_image_path,
-                },
+                    formula_counter += 1
+                    page_no = element.prov[0].page_no if element.prov else None
+                    if formula_text:
+                        page_content = f"Formula LaTeX: {formula_text}"
+                        formula_status = "transcribed" if had_placeholder else "decoded"
+                    else:
+                        page_content = f"Formula source (not decoded): {formula_orig}"
+                        formula_status = "not_decoded"
+
+                    if had_placeholder and formula_text:
+                        formula_placeholder_replacements.append(formula_text)
+
+                    documents.append(
+                        Document(
+                            page_content=page_content,
+                            metadata={
+                                "source": file_path,
+                                "doc_id": doc_filename,
+                                "type": "formula",
+                                "formula_id": formula_counter,
+                                "formula_status": formula_status,
+                                "page": page_no,
+                                "path": formula_image_path,
+                            },
+                        )
+                    )
+
+        if formula_placeholder_replacements:
+            full_markdown = _replace_formula_placeholders(
+                full_markdown,
+                formula_placeholder_replacements,
             )
-        )
 
-    if formula_placeholder_replacements:
-        full_markdown = _replace_formula_placeholders(
-            full_markdown,
-            formula_placeholder_replacements,
-        )
+        # Final formula cleanup applies to both markdown export and chunking source.
+        full_markdown = _sanitize_markdown_formulas(full_markdown)
+        md_filename.write_text(full_markdown, encoding="utf-8")
 
-    # Final formula cleanup applies to both markdown export and chunking source.
-    full_markdown = _sanitize_markdown_formulas(full_markdown)
-    md_filename.write_text(full_markdown, encoding="utf-8")
-
-    markdown_chunks = _chunk_text(
-        text=full_markdown,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-    )
-
-    for idx, chunk in enumerate(markdown_chunks, start=1):
-        documents.append(
-            Document(
-                page_content=chunk,
-                metadata={
-                    "source": file_path,
-                    "doc_id": doc_filename,
-                    "type": "text_chunk",
-                    "chunk_id": idx,
-                    "chunk_total": len(markdown_chunks),
-                    "markdown_path": str(md_filename),
-                },
+        with measure_time("text_chunking", tracker=time_tracker):
+            markdown_chunks = _chunk_text(
+                text=full_markdown,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
             )
-        )
 
-    picture_counter = 0
-    for element, _level in conv_res.document.iterate_items():
-        if not isinstance(element, PictureItem):
-            continue
+            for idx, chunk in enumerate(markdown_chunks, start=1):
+                documents.append(
+                    Document(
+                        page_content=chunk,
+                        metadata={
+                            "source": file_path,
+                            "doc_id": doc_filename,
+                            "type": "text_chunk",
+                            "chunk_id": idx,
+                            "chunk_total": len(markdown_chunks),
+                            "markdown_path": str(md_filename),
+                        },
+                    )
+                )
 
-        picture_image = element.get_image(conv_res.document)
-        if picture_image is None:
-            continue
+        with measure_time("image_processing", tracker=time_tracker):
+            picture_counter = 0
+            for element, _level in conv_res.document.iterate_items():
+                if not isinstance(element, PictureItem):
+                    continue
 
-        picture_counter += 1
-        element_image_filename = (
-            image_output_dir / f"{doc_filename}-picture-{picture_counter}.png"
-        )
-        picture_image.save(element_image_filename, "PNG")
+                picture_image = element.get_image(conv_res.document)
+                if picture_image is None:
+                    continue
 
-        caption = element.caption_text(conv_res.document).strip()
-        picture_description = ""
-        if image_describer is not None:
-            try:
-                picture_description = image_describer(element_image_filename, caption)
-            except Exception as err:  # noqa: BLE001
-                # picture_description = f"Image description failed: {err}"
-                picture_description = ""
-                print(f"Image description failed for {element_image_filename}: {err}")
+                picture_counter += 1
+                with measure_time(
+                    f"image_processing_{picture_counter}",
+                    tracker=time_tracker,
+                ):
+                    element_image_filename = (
+                        image_output_dir
+                        / f"{doc_filename}-picture-{picture_counter}.png"
+                    )
+                    picture_image.save(element_image_filename, "PNG")
 
-        page_no = element.prov[0].page_no if element.prov else None
-        image_context_parts = [
-            f"Image extracted from: {file_path}",
-            f"Image path: {element_image_filename}",
-            f"Page: {page_no if page_no is not None else 'unknown'}",
-        ]
-        if caption:
-            image_context_parts.append(f"Caption: {caption}")
-        else:
-            image_context_parts.append("Caption: No caption available.")
-        if picture_description:
-            image_context_parts.append(f"Visual description: {picture_description}")
+                    caption = element.caption_text(conv_res.document).strip()
+                    picture_description = ""
+                    if image_describer is not None:
+                        try:
+                            picture_description = image_describer(
+                                element_image_filename,
+                                caption,
+                            )
+                        except Exception as err:  # noqa: BLE001
+                            picture_description = ""
+                            print(
+                                f"Image description failed for {element_image_filename}: {err}"
+                            )
 
-        print(
-            f"Processed image {element_image_filename},\n caption: {caption},\n description: {picture_description}",
-            image_context_parts,
-        )
+                    page_no = element.prov[0].page_no if element.prov else None
+                    image_context_parts = [
+                        f"Image extracted from: {file_path}",
+                        f"Image path: {element_image_filename}",
+                        f"Page: {page_no if page_no is not None else 'unknown'}",
+                    ]
+                    if caption:
+                        image_context_parts.append(f"Caption: {caption}")
+                    else:
+                        image_context_parts.append("Caption: No caption available.")
+                    if picture_description:
+                        image_context_parts.append(
+                            f"Visual description: {picture_description}"
+                        )
 
-        documents.append(
-            Document(
-                page_content="\n".join(image_context_parts),
-                metadata={
-                    "source": file_path,
-                    "doc_id": doc_filename,
-                    "type": "image",
-                    "path": str(element_image_filename),
-                    "page": page_no,
-                    "caption": caption,
-                },
-            )
-        )
+                    print(
+                        image_context_parts,
+                    )
+
+                    documents.append(
+                        Document(
+                            page_content="\n".join(image_context_parts),
+                            metadata={
+                                "source": file_path,
+                                "doc_id": doc_filename,
+                                "type": "image",
+                                "path": str(element_image_filename),
+                                "page": page_no,
+                                "caption": caption,
+                            },
+                        )
+                    )
+
+    print("Extraction time breakdown:")
+    for key, value in time_tracker.items():
+        print(f"{key}: {value:.2f} seconds")
 
     return documents
