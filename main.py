@@ -39,7 +39,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--vision-model",
-        default="moondream",
+        default="gemma4:e4b",
         help="Ollama vision model used for image descriptions.",
     )
     parser.add_argument(

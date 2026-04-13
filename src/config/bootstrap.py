@@ -14,7 +14,6 @@ def print(*args, **kwargs):
     log_level = str(kwargs.get("log_level", "info")).upper()
     message = sep.join(str(a) for a in args)
     try:
-        # depth=1 makes Loguru report the caller of this wrapper as the log origin.
         logger.opt(depth=1).log(log_level, message)
     except ValueError:
         logger.opt(depth=1).log("INFO", message)

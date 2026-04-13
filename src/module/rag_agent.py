@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
+from langchain.chat_models import init_chat_model
 
 from src.vector_store.faiss_store import faiss_index_exists, load_faiss_index
 from src.module.upload_docs import (
@@ -174,7 +175,10 @@ def interactive_chat(
         use_vision_model=use_vision_model,
         auto_pull_models=auto_pull_models,
     )
-    llm = ChatOllama(model=config.llm_model, temperature=0)
+    # llm = ChatOllama(model=config.llm_model, temperature=0)
+    llm = init_chat_model(
+        model=config.llm_model, model_provider="ollama", temperature=0
+    )
 
     print("RAG chat is ready. Type a question, or 'exit' to stop.")
     while True:
@@ -192,7 +196,7 @@ def interactive_chat(
 
         prompt = (
             "You are a strict research-paper QA assistant. "
-            "Answer only from the provided context extracted from the paper 'Attention Is All You Need'.\n\n"
+            "Answer only from the provided context extracted from the paper.\n\n"
             f"Question:\n{question}\n\n"
             f"Context:\n{context}\n\n"
             "Give a concise answer and include source references by source number."

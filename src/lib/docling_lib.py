@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Callable
 from src.utils.time_utils import measure_time
@@ -30,6 +31,57 @@ def _replace_formula_placeholders(
 
 
 @measure_time
+def _sanitize_latex_expression(latex_expression: str) -> str:
+    expression = latex_expression.strip()
+    if not expression:
+        return expression
+
+    aligned_env_markers = (
+        r"\\begin{align",
+        r"\\begin{aligned}",
+        r"\\begin{array}",
+        r"\\begin{matrix}",
+        r"\\begin{pmatrix}",
+        r"\\begin{bmatrix}",
+        r"\\begin{cases}",
+    )
+    uses_alignment_env = any(marker in expression for marker in aligned_env_markers)
+
+    # OCR/VLM often emits stray alignment markers (&) even when not using align environments.
+    if not uses_alignment_env:
+        expression = re.sub(r"(?<!\\)\s*&\s*", " ", expression)
+
+    expression = re.sub(r"\s*\\\\\s*", r" \\\\ ", expression)
+    expression = re.sub(r"\s{2,}", " ", expression)
+    return expression.strip()
+
+
+@measure_time
+def _sanitize_markdown_formulas(markdown_text: str) -> str:
+    def _sanitize_block_formula(match: re.Match[str]) -> str:
+        formula = match.group(1)
+        return f"$${_sanitize_latex_expression(formula)}$$"
+
+    def _sanitize_inline_formula(match: re.Match[str]) -> str:
+        formula = match.group(1)
+        return f"${_sanitize_latex_expression(formula)}$"
+
+    sanitized = re.sub(
+        r"\$\$(.*?)\$\$",
+        _sanitize_block_formula,
+        markdown_text,
+        flags=re.DOTALL,
+    )
+    sanitized = re.sub(
+        r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)",
+        _sanitize_inline_formula,
+        sanitized,
+        flags=re.DOTALL,
+    )
+    return sanitized
+
+
+@measure_time
 def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options = PdfPipelineOptions()
     pdf_pipeline_options.generate_page_images = True
@@ -44,6 +96,7 @@ def _build_docling_converter() -> DocumentConverter:
     # Force Transformers runtime for code/formula stage to avoid MLX auto-runtime fallback logs.
     pdf_pipeline_options.code_formula_options = CodeFormulaVlmOptions.from_preset(
         "codeformulav2",
+        # "granite_docling",
         engine_options=TransformersVlmEngineOptions(),
     )
 
@@ -113,30 +166,9 @@ def docling_pdf_extractor(
 
     md_filename = markdown_dir / f"{doc_filename}.md"
     conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.REFERENCED)
-    full_markdown = conv_res.document.export_to_markdown()
+    full_markdown = md_filename.read_text(encoding="utf-8")
 
     documents: list[Document] = []
-
-    markdown_chunks = _chunk_text(
-        text=full_markdown,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-    )
-
-    for idx, chunk in enumerate(markdown_chunks, start=1):
-        documents.append(
-            Document(
-                page_content=chunk,
-                metadata={
-                    "source": file_path,
-                    "doc_id": doc_filename,
-                    "type": "text_chunk",
-                    "chunk_id": idx,
-                    "chunk_total": len(markdown_chunks),
-                    "markdown_path": str(md_filename),
-                },
-            )
-        )
 
     formula_counter = 0
     formula_placeholder_replacements: list[str] = []
@@ -144,7 +176,7 @@ def docling_pdf_extractor(
         if not isinstance(element, FormulaItem):
             continue
 
-        formula_text = (element.text or "").strip()
+        formula_text = _sanitize_latex_expression((element.text or "").strip())
         formula_orig = (element.orig or "").strip()
         had_placeholder = not formula_text and bool(formula_orig)
 
@@ -163,7 +195,7 @@ def docling_pdf_extractor(
                         formula_image_filename, formula_orig
                     )
                     if transcribed:
-                        formula_text = transcribed
+                        formula_text = _sanitize_latex_expression(transcribed)
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -198,14 +230,34 @@ def docling_pdf_extractor(
         )
 
     if formula_placeholder_replacements:
-        markdown_with_formulas = _replace_formula_placeholders(
-            md_filename.read_text(encoding="utf-8"),
-            formula_placeholder_replacements,
-        )
-        md_filename.write_text(markdown_with_formulas, encoding="utf-8")
         full_markdown = _replace_formula_placeholders(
             full_markdown,
             formula_placeholder_replacements,
+        )
+
+    # Final formula cleanup applies to both markdown export and chunking source.
+    full_markdown = _sanitize_markdown_formulas(full_markdown)
+    md_filename.write_text(full_markdown, encoding="utf-8")
+
+    markdown_chunks = _chunk_text(
+        text=full_markdown,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+
+    for idx, chunk in enumerate(markdown_chunks, start=1):
+        documents.append(
+            Document(
+                page_content=chunk,
+                metadata={
+                    "source": file_path,
+                    "doc_id": doc_filename,
+                    "type": "text_chunk",
+                    "chunk_id": idx,
+                    "chunk_total": len(markdown_chunks),
+                    "markdown_path": str(md_filename),
+                },
+            )
         )
 
     picture_counter = 0
@@ -229,7 +281,9 @@ def docling_pdf_extractor(
             try:
                 picture_description = image_describer(element_image_filename, caption)
             except Exception as err:  # noqa: BLE001
-                picture_description = f"Image description failed: {err}"
+                # picture_description = f"Image description failed: {err}"
+                picture_description = ""
+                print(f"Image description failed for {element_image_filename}: {err}")
 
         page_no = element.prov[0].page_no if element.prov else None
         image_context_parts = [
@@ -243,6 +297,11 @@ def docling_pdf_extractor(
             image_context_parts.append("Caption: No caption available.")
         if picture_description:
             image_context_parts.append(f"Visual description: {picture_description}")
+
+        print(
+            f"Processed image {element_image_filename},\n caption: {caption},\n description: {picture_description}",
+            image_context_parts,
+        )
 
         documents.append(
             Document(

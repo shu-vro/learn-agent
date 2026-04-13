@@ -8,7 +8,7 @@ import requests
 class OllamaVisionClient:
     def __init__(
         self,
-        model: str = "moondream",
+        model: str = "gemma4:e4b",
         base_url: str = "http://localhost:11434",
         auto_pull: bool = True,
     ) -> None:
