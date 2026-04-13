@@ -1,11 +1,13 @@
+import os
 from pathlib import Path
 from typing import Callable
-
+import nltk
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, OcrMacOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import ImageRefMode, PictureItem
 from langchain_core.documents import Document
+from langchain_text_splitters import NLTKTextSplitter
 
 
 def _build_docling_converter() -> DocumentConverter:
@@ -13,6 +15,15 @@ def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options.generate_page_images = True
     pdf_pipeline_options.generate_picture_images = True
     pdf_pipeline_options.images_scale = 2.0
+    # We run image understanding through Ollama VLM, so keep Docling VLM enrichments off.
+    # This avoids the "MLX not available on Apple Silicon" auto-fallback warning path.
+    pdf_pipeline_options.do_formula_enrichment = False
+    pdf_pipeline_options.do_code_enrichment = False
+    pdf_pipeline_options.do_picture_description = False
+
+    # only if user is in mac
+    if os.name == "posix" and "darwin" in os.uname().sysname.lower():
+        pdf_pipeline_options.ocr_options = OcrMacOptions()
 
     return DocumentConverter(
         format_options={
@@ -21,23 +32,34 @@ def _build_docling_converter() -> DocumentConverter:
     )
 
 
+def _ensure_nltk_resources() -> bool:
+    resources = ["tokenizers/punkt", "tokenizers/punkt_tab"]
+    for resource_path in resources:
+        try:
+            nltk.data.find(resource_path)
+        except LookupError:
+            return False
+
+    return True
+
+
 def _chunk_text(
     text: str, chunk_size: int = 1800, chunk_overlap: int = 250
 ) -> list[str]:
     if chunk_size <= chunk_overlap:
         raise ValueError("chunk_size must be greater than chunk_overlap")
 
-    chunks: list[str] = []
-    start = 0
-    while start < len(text):
-        end = min(len(text), start + chunk_size)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end == len(text):
-            break
-        start = end - chunk_overlap
-    return chunks
+    has_nltk_resources = _ensure_nltk_resources()
+    text_splitter = NLTKTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+    if has_nltk_resources:
+        chunks = text_splitter.split_text(text)
+    else:
+        sentence_tokenizer = nltk.tokenize.PunktSentenceTokenizer()
+        sentence_splits = sentence_tokenizer.tokenize(text)
+        chunks = text_splitter._merge_splits(sentence_splits, "\n\n")
+
+    return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
 def docling_pdf_extractor(
