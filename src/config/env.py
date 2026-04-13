@@ -1,6 +1,7 @@
 from pathlib import Path
 
 # Strict environment configurations
+ENVIRONMENT = "development"
 LOG_LEVEL = "DEBUG"
 DEFAULT_PAPER_SOURCE = "https://arxiv.org/pdf/1706.03762"
 DEFAULT_INDEX_DIR = Path("data/faiss_db")

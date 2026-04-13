@@ -7,14 +7,14 @@ from langchain_ollama import ChatOllama
 from langchain.chat_models import init_chat_model
 
 from src.vector_store.faiss_store import faiss_index_exists, load_faiss_index
-from src.module.upload_docs import (
+from src.config.env import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_INDEX_DIR,
     DEFAULT_PAPER_SOURCE,
     DEFAULT_VISION_MODEL,
-    ingest_paper_to_faiss,
 )
+from src.module.upload_docs import ingest_paper_to_faiss
 
 
 @dataclass(slots=True)
