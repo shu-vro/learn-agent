@@ -35,7 +35,6 @@ uv sync
 
 ```bash
 ollama pull gemma4:e4b
-ollama pull moondream
 ```
 
 If you prefer a different vision model, set it with `--vision-model`.
@@ -82,3 +81,43 @@ uv run main.py ask "Summarize encoder-decoder attention" --source https://arxiv.
 ```bash
 uv run main.py ask "How are positional encodings defined?" --no-auto-pull
 ```
+
+## Help
+
+```bash
+uv run main.py --help
+```
+
+```
+usage: main.py [-h] [--source SOURCE] [--index-dir INDEX_DIR] [--artifacts-dir ARTIFACTS_DIR] [--embedding-model EMBEDDING_MODEL]
+               [--llm-model LLM_MODEL] [--vision-model VISION_MODEL] [--top-k TOP_K] [--no-vision] [--no-auto-pull]
+               {ingest,ask,chat} ...
+
+Multimodal RAG over Attention Is All You Need using Docling + FAISS + Ollama.
+
+positional arguments:
+  {ingest,ask,chat}
+    ingest              Ingest the paper and build FAISS index.
+    ask                 Ask one question to the RAG agent.
+    chat                Run an interactive RAG chat session.
+
+options:
+  -h, --help            show this help message and exit
+  --source SOURCE       Paper source URL or local file path.
+  --index-dir INDEX_DIR
+                        Directory where the FAISS index is stored.
+  --artifacts-dir ARTIFACTS_DIR
+                        Directory for extracted markdown and images.
+  --embedding-model EMBEDDING_MODEL
+                        SentenceTransformer embedding model name.
+  --llm-model LLM_MODEL
+                        Ollama text generation model for QA.
+  --vision-model VISION_MODEL
+                        Ollama vision model used for image descriptions.
+  --top-k TOP_K         Number of retrieved chunks for each question.
+  --no-vision           Disable vision model and skip image descriptions.
+  --no-auto-pull        Do not auto-pull missing Ollama models.
+```
+
+> [!CAUTION]
+> This project is a work in progress and may contain incomplete features, bugs, or suboptimal implementations. It is intended for educational and experimental purposes only. Use at your own risk.
