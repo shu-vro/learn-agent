@@ -13,6 +13,7 @@ dependencies = [
     "langchain-huggingface>=1.2.1",
     "langchain-ollama>=1.1.0",
     "langchain-text-splitters>=1.1.1",
+    "loguru>=0.7.3",
     "nltk>=3.9.4",
     "sentence-transformers>=5.4.0",
 ]

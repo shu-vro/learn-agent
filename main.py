@@ -1,10 +1,13 @@
 import argparse
+import src.config.bootstrap
 from pathlib import Path
 
 from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
 from src.module.upload_docs import ingest_paper_to_faiss
+from src.utils.time_utils import measure_time
 
 
+@measure_time
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Multimodal RAG over Attention Is All You Need using Docling + FAISS + Ollama."
@@ -99,6 +102,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@measure_time
 def main() -> None:
     parser = _build_cli_parser()
     args = parser.parse_args()

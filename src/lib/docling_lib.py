@@ -1,25 +1,51 @@
 import os
 from pathlib import Path
 from typing import Callable
+from src.utils.time_utils import measure_time
+
 import nltk
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions, OcrMacOptions
+from docling.datamodel.pipeline_options import (
+    CodeFormulaVlmOptions,
+    OcrMacOptions,
+    PdfPipelineOptions,
+)
+from docling.datamodel.vlm_engine_options import TransformersVlmEngineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc import ImageRefMode, PictureItem
+from docling_core.types.doc import FormulaItem, ImageRefMode, PictureItem
 from langchain_core.documents import Document
 from langchain_text_splitters import NLTKTextSplitter
 
 
+@measure_time
+def _replace_formula_placeholders(
+    markdown_text: str, latex_replacements: list[str]
+) -> str:
+    updated_text = markdown_text
+    for latex in latex_replacements:
+        updated_text = updated_text.replace(
+            "<!-- formula-not-decoded -->", f"$${latex}$$", 1
+        )
+    return updated_text
+
+
+@measure_time
 def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options = PdfPipelineOptions()
     pdf_pipeline_options.generate_page_images = True
     pdf_pipeline_options.generate_picture_images = True
     pdf_pipeline_options.images_scale = 2.0
-    # We run image understanding through Ollama VLM, so keep Docling VLM enrichments off.
-    # This avoids the "MLX not available on Apple Silicon" auto-fallback warning path.
-    pdf_pipeline_options.do_formula_enrichment = False
+
+    # Enable formula enrichment to get LaTeX extraction.
     pdf_pipeline_options.do_code_enrichment = False
+    pdf_pipeline_options.do_formula_enrichment = True
     pdf_pipeline_options.do_picture_description = False
+
+    # Force Transformers runtime for code/formula stage to avoid MLX auto-runtime fallback logs.
+    pdf_pipeline_options.code_formula_options = CodeFormulaVlmOptions.from_preset(
+        "codeformulav2",
+        engine_options=TransformersVlmEngineOptions(),
+    )
 
     # only if user is in mac
     if os.name == "posix" and "darwin" in os.uname().sysname.lower():
@@ -32,6 +58,7 @@ def _build_docling_converter() -> DocumentConverter:
     )
 
 
+@measure_time
 def _ensure_nltk_resources() -> bool:
     resources = ["tokenizers/punkt", "tokenizers/punkt_tab"]
     for resource_path in resources:
@@ -43,6 +70,7 @@ def _ensure_nltk_resources() -> bool:
     return True
 
 
+@measure_time
 def _chunk_text(
     text: str, chunk_size: int = 1800, chunk_overlap: int = 250
 ) -> list[str]:
@@ -62,10 +90,12 @@ def _chunk_text(
     return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
+@measure_time
 def docling_pdf_extractor(
     file_path: str,
     artifacts_root: str | Path = "data/artifacts",
     image_describer: Callable[[Path, str], str] | None = None,
+    formula_transcriber: Callable[[Path, str], str] | None = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 250,
 ) -> list[Document]:
@@ -76,8 +106,10 @@ def docling_pdf_extractor(
     artifacts_root_path = Path(artifacts_root)
     markdown_dir = artifacts_root_path / "markdown" / doc_filename
     image_output_dir = artifacts_root_path / "images" / doc_filename
+    formula_output_dir = artifacts_root_path / "formulas" / doc_filename
     markdown_dir.mkdir(parents=True, exist_ok=True)
     image_output_dir.mkdir(parents=True, exist_ok=True)
+    formula_output_dir.mkdir(parents=True, exist_ok=True)
 
     md_filename = markdown_dir / f"{doc_filename}.md"
     conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.REFERENCED)
@@ -104,6 +136,76 @@ def docling_pdf_extractor(
                     "markdown_path": str(md_filename),
                 },
             )
+        )
+
+    formula_counter = 0
+    formula_placeholder_replacements: list[str] = []
+    for element, _level in conv_res.document.iterate_items():
+        if not isinstance(element, FormulaItem):
+            continue
+
+        formula_text = (element.text or "").strip()
+        formula_orig = (element.orig or "").strip()
+        had_placeholder = not formula_text and bool(formula_orig)
+
+        formula_image_path: str | None = None
+        formula_image = element.get_image(conv_res.document)
+        if formula_image is not None:
+            formula_image_filename = (
+                formula_output_dir / f"{doc_filename}-formula-{formula_counter + 1}.png"
+            )
+            formula_image.save(formula_image_filename, "PNG")
+            formula_image_path = str(formula_image_filename)
+
+            if not formula_text and formula_transcriber is not None:
+                try:
+                    transcribed = formula_transcriber(
+                        formula_image_filename, formula_orig
+                    )
+                    if transcribed:
+                        formula_text = transcribed
+                except Exception:  # noqa: BLE001
+                    pass
+
+        if not formula_text and not formula_orig:
+            continue
+
+        formula_counter += 1
+        page_no = element.prov[0].page_no if element.prov else None
+        if formula_text:
+            page_content = f"Formula LaTeX: {formula_text}"
+            formula_status = "transcribed" if had_placeholder else "decoded"
+        else:
+            page_content = f"Formula source (not decoded): {formula_orig}"
+            formula_status = "not_decoded"
+
+        if had_placeholder and formula_text:
+            formula_placeholder_replacements.append(formula_text)
+
+        documents.append(
+            Document(
+                page_content=page_content,
+                metadata={
+                    "source": file_path,
+                    "doc_id": doc_filename,
+                    "type": "formula",
+                    "formula_id": formula_counter,
+                    "formula_status": formula_status,
+                    "page": page_no,
+                    "path": formula_image_path,
+                },
+            )
+        )
+
+    if formula_placeholder_replacements:
+        markdown_with_formulas = _replace_formula_placeholders(
+            md_filename.read_text(encoding="utf-8"),
+            formula_placeholder_replacements,
+        )
+        md_filename.write_text(markdown_with_formulas, encoding="utf-8")
+        full_markdown = _replace_formula_placeholders(
+            full_markdown,
+            formula_placeholder_replacements,
         )
 
     picture_counter = 0

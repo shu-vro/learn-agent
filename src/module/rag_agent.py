@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
 
-from src.lib.faiss_store import faiss_index_exists, load_faiss_index
+from src.vector_store.faiss_store import faiss_index_exists, load_faiss_index
 from src.module.upload_docs import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
