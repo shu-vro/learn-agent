@@ -3,14 +3,15 @@ import src.config.bootstrap
 from pathlib import Path
 
 from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
-from src.module.upload_docs import ingest_paper_to_faiss
+from src.module.upload_docs import ingest_paper_to_qdrant
+from src.config.env import DEFAULT_LLM_MODEL, DEFAULT_QDRANT_COLLECTION
 from src.utils.time_utils import measure_time
 
 
 @measure_time
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Multimodal RAG over Attention Is All You Need using Docling + FAISS + Ollama."
+        description="Multimodal RAG over Attention Is All You Need using Docling + Qdrant + Ollama."
     )
     parser.add_argument(
         "--source",
@@ -18,9 +19,11 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Paper source URL or local file path.",
     )
     parser.add_argument(
+        "--collection-name",
         "--index-dir",
-        default="data/faiss_db",
-        help="Directory where the FAISS index is stored.",
+        dest="collection_name",
+        default=DEFAULT_QDRANT_COLLECTION,
+        help="Qdrant collection name for indexed paper documents.",
     )
     parser.add_argument(
         "--artifacts-dir",
@@ -34,7 +37,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--llm-model",
-        default="gemma4:e4b",
+        default=DEFAULT_LLM_MODEL,
         help="Ollama text generation model for QA.",
     )
     parser.add_argument(
@@ -62,7 +65,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser(
-        "ingest", help="Ingest the paper and build FAISS index."
+        "ingest", help="Ingest the paper and write vectors to Qdrant."
     )
     ingest_parser.add_argument(
         "--rebuild",
@@ -111,7 +114,7 @@ def main() -> None:
     auto_pull_models = not args.no_auto_pull
     config = RagAppConfig(
         source=args.source,
-        index_dir=Path(args.index_dir),
+        collection_name=args.collection_name,
         artifacts_root=Path(args.artifacts_dir),
         embedding_model=args.embedding_model,
         llm_model=args.llm_model,
@@ -120,18 +123,23 @@ def main() -> None:
     )
 
     if args.command == "ingest":
-        ingest_info = ingest_paper_to_faiss(
+        ingest_info = ingest_paper_to_qdrant(
             source=config.source,
-            index_dir=config.index_dir,
+            collection_name=config.collection_name,
             artifacts_root=config.artifacts_root,
             embedding_model_name=config.embedding_model,
             vision_model_name=config.vision_model,
             use_vision_model=use_vision_model,
             auto_pull_models=auto_pull_models,
+            recreate_collection=args.rebuild,
         )
-        print("Ingestion complete.")
+        if ingest_info.get("skipped_existing_paper"):
+            print("Paper already indexed. Skipped ingestion.")
+        else:
+            print("Ingestion complete.")
         print(f"Indexed documents: {ingest_info['documents_indexed']}")
-        print(f"FAISS index dir: {ingest_info['index_dir']}")
+        print(f"Paper SHA256: {ingest_info['paper_sha256']}")
+        print(f"Qdrant collection: {ingest_info['collection_name']}")
         print(f"Artifacts dir: {ingest_info['artifacts_root']}")
         return
 

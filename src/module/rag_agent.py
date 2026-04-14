@@ -5,25 +5,30 @@ from typing import Any
 from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
 from langchain.chat_models import init_chat_model
+from src.lib.paper_fingerprint import fingerprint_paper_source
 
-from src.vector_store.faiss_store import faiss_index_exists, load_faiss_index
+from src.vector_store.qdrant_store import (
+    load_qdrant_index,
+    qdrant_paper_hash_exists,
+)
 from src.config.env import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_INDEX_DIR,
+    DEFAULT_QDRANT_COLLECTION,
     DEFAULT_PAPER_SOURCE,
     DEFAULT_VISION_MODEL,
+    DEFAULT_LLM_MODEL,
 )
-from src.module.upload_docs import ingest_paper_to_faiss
+from src.module.upload_docs import ingest_paper_to_qdrant
 
 
 @dataclass(slots=True)
 class RagAppConfig:
     source: str = DEFAULT_PAPER_SOURCE
-    index_dir: Path = DEFAULT_INDEX_DIR
+    collection_name: str = DEFAULT_QDRANT_COLLECTION
     artifacts_root: Path = DEFAULT_ARTIFACTS_DIR
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    llm_model: str = "gemma4:e4b"
+    llm_model: str = DEFAULT_LLM_MODEL
     vision_model: str = DEFAULT_VISION_MODEL
     top_k: int = 5
 
@@ -95,31 +100,58 @@ def _get_vectorstore(
     use_vision_model: bool,
     auto_pull_models: bool,
 ) -> tuple[Any, dict[str, Any]]:
-    if rebuild_index or not faiss_index_exists(config.index_dir):
-        ingestion_info = ingest_paper_to_faiss(
+    paper_fingerprint = fingerprint_paper_source(config.source)
+    paper_sha256 = paper_fingerprint.sha256
+
+    if rebuild_index:
+        ingestion_info = ingest_paper_to_qdrant(
             source=config.source,
-            index_dir=config.index_dir,
+            collection_name=config.collection_name,
             artifacts_root=config.artifacts_root,
             embedding_model_name=config.embedding_model,
             vision_model_name=config.vision_model,
             use_vision_model=use_vision_model,
             auto_pull_models=auto_pull_models,
+            recreate_collection=rebuild_index,
+            paper_fingerprint=paper_fingerprint,
         )
         return ingestion_info["vectorstore"], ingestion_info
 
-    loaded_vectorstore = load_faiss_index(
+    if qdrant_paper_hash_exists(
+        collection_name=config.collection_name,
+        paper_sha256=paper_sha256,
+    ):
+        print(f"Paper already indexed in Qdrant. paper_sha256={paper_sha256}")
+        loaded_vectorstore = load_qdrant_index(
+            embedding_model_name=config.embedding_model,
+            collection_name=config.collection_name,
+        )
+        return loaded_vectorstore, {
+            "vectorstore": loaded_vectorstore,
+            "source": config.source,
+            "source_file": str(paper_fingerprint.local_path),
+            "paper_sha256": paper_sha256,
+            "collection_name": config.collection_name,
+            "artifacts_root": str(config.artifacts_root),
+            "documents_indexed": 0,
+            "embedding_model": config.embedding_model,
+            "vision_model": config.vision_model if use_vision_model else "disabled",
+            "skipped_existing_paper": True,
+        }
+
+    print(f"Paper hash not found in Qdrant. paper_sha256={paper_sha256}")
+    ingestion_info = ingest_paper_to_qdrant(
+        source=config.source,
+        collection_name=config.collection_name,
+        artifacts_root=config.artifacts_root,
         embedding_model_name=config.embedding_model,
-        index_dir=config.index_dir,
+        vision_model_name=config.vision_model,
+        use_vision_model=use_vision_model,
+        auto_pull_models=auto_pull_models,
+        recreate_collection=False,
+        paper_fingerprint=paper_fingerprint,
     )
-    return loaded_vectorstore, {
-        "vectorstore": loaded_vectorstore,
-        "source": config.source,
-        "index_dir": str(config.index_dir),
-        "artifacts_root": str(config.artifacts_root),
-        "documents_indexed": 0,
-        "embedding_model": config.embedding_model,
-        "vision_model": config.vision_model if use_vision_model else "disabled",
-    }
+    return ingestion_info["vectorstore"], ingestion_info
 
 
 def answer_question(
@@ -176,9 +208,7 @@ def interactive_chat(
         auto_pull_models=auto_pull_models,
     )
     # llm = ChatOllama(model=config.llm_model, temperature=0)
-    llm = init_chat_model(
-        model=config.llm_model, model_provider="ollama", temperature=0
-    )
+    llm = init_chat_model(model=config.llm_model, temperature=0)
 
     print("RAG chat is ready. Type a question, or 'exit' to stop.")
     while True:

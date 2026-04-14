@@ -2,11 +2,7 @@ from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-
-
-def build_embeddings(model_name: str = "all-MiniLM-L6-v2") -> HuggingFaceEmbeddings:
-    return HuggingFaceEmbeddings(model_name=model_name)
+from src.lib.embeddings import build_embeddings
 
 
 def faiss_index_exists(index_dir: str | Path) -> bool:
