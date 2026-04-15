@@ -98,7 +98,6 @@ def _get_vectorstore(
     use_image_descriptions: bool,
     use_formula_transcription: bool,
     equation_ocr_lib: str,
-    auto_pull_models: bool,
 ) -> tuple[Any, dict[str, Any]]:
     if not config.sources:
         raise ValueError("RagAppConfig.sources cannot be empty.")
@@ -113,7 +112,6 @@ def _get_vectorstore(
         use_vision_model=use_vision_model,
         use_image_descriptions=use_image_descriptions,
         use_formula_transcription=use_formula_transcription,
-        auto_pull_models=auto_pull_models,
         recreate_collection=rebuild_index,
     )
     return ingestion_info["vectorstore"], ingestion_info
@@ -127,7 +125,6 @@ def answer_question(
     use_image_descriptions: bool = True,
     use_formula_transcription: bool = True,
     equation_ocr_lib: str = DEFAULT_OCR_LIB,
-    auto_pull_models: bool = True,
 ) -> dict[str, Any]:
     vectorstore, ingestion_info = _get_vectorstore(
         config=config,
@@ -136,7 +133,6 @@ def answer_question(
         use_image_descriptions=use_image_descriptions,
         use_formula_transcription=use_formula_transcription,
         equation_ocr_lib=equation_ocr_lib,
-        auto_pull_models=auto_pull_models,
     )
 
     retrieved_docs = vectorstore.similarity_search(
@@ -173,7 +169,6 @@ def interactive_chat(
     use_image_descriptions: bool = True,
     use_formula_transcription: bool = True,
     equation_ocr_lib: str = DEFAULT_OCR_LIB,
-    auto_pull_models: bool = True,
 ) -> None:
     vectorstore, _ = _get_vectorstore(
         config=config,
@@ -182,7 +177,6 @@ def interactive_chat(
         use_image_descriptions=use_image_descriptions,
         use_formula_transcription=use_formula_transcription,
         equation_ocr_lib=equation_ocr_lib,
-        auto_pull_models=auto_pull_models,
     )
     # llm = ChatOllama(model=config.llm_model, temperature=0)
     llm = init_chat_model(model=config.llm_model, temperature=0)

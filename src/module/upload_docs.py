@@ -65,7 +65,6 @@ def ingest_paper_to_qdrant(
     use_vision_model: bool = True,
     use_image_descriptions: bool = True,
     use_formula_transcription: bool = True,
-    auto_pull_models: bool = True,
     recreate_collection: bool = False,
     paper_fingerprint: PaperFingerprint | None = None,
 ) -> dict[str, Any]:
@@ -92,7 +91,6 @@ def ingest_paper_to_qdrant(
     if needs_llm_vision:
         vision_client = OllamaVisionClient(
             model=vision_model_name,
-            auto_pull=auto_pull_models,
         )
 
     if use_image_descriptions and vision_client is not None:
@@ -107,7 +105,7 @@ def ingest_paper_to_qdrant(
 
     print(
         f"{use_vision_model=}, {use_image_descriptions=}, "
-        f"{use_formula_transcription=}, {selected_equation_ocr_lib=}, {auto_pull_models=}"
+        f"{use_formula_transcription=}, {selected_equation_ocr_lib=}"
     )
 
     source_results: list[dict[str, Any]] = []

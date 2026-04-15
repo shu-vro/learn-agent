@@ -9,6 +9,8 @@ from src.config.env import (
     DEFAULT_OCR_LIB,
     DEFAULT_PAPER_SOURCES,
     DEFAULT_QDRANT_COLLECTION,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_VISION_MODEL,
 )
 from src.utils.time_utils import measure_time
 
@@ -39,7 +41,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--embedding-model",
-        default="all-MiniLM-L6-v2",
+        default=DEFAULT_EMBEDDING_MODEL,
         help="SentenceTransformer embedding model name.",
     )
     parser.add_argument(
@@ -49,7 +51,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--vision-model",
-        default="gemma4:e4b",
+        default=DEFAULT_VISION_MODEL,
         help="Ollama vision model used for image descriptions.",
     )
     parser.add_argument(
@@ -72,11 +74,6 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         "--no-formula-transcription",
         action="store_true",
         help="Disable formula LaTeX transcription from formula images.",
-    )
-    parser.add_argument(
-        "--no-auto-pull",
-        action="store_true",
-        help="Do not auto-pull missing Ollama models.",
     )
     parser.add_argument(
         "--equation-ocr-lib",
@@ -133,11 +130,6 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             help="Disable formula LaTeX transcription from formula images.",
         )
         command_parser.add_argument(
-            "--no-auto-pull",
-            action="store_true",
-            help="Do not auto-pull missing Ollama models.",
-        )
-        command_parser.add_argument(
             "--equation-ocr-lib",
             choices=("local", "llm"),
             default=DEFAULT_OCR_LIB,
@@ -159,7 +151,6 @@ def main() -> None:
     use_image_descriptions = use_vision_model and not args.no_image_description
     use_formula_transcription = use_vision_model and not args.no_formula_transcription
     equation_ocr_lib = args.equation_ocr_lib
-    auto_pull_models = not args.no_auto_pull
     selected_sources = args.sources or list(DEFAULT_PAPER_SOURCES)
     config = RagAppConfig(
         sources=selected_sources,
@@ -183,7 +174,6 @@ def main() -> None:
             use_image_descriptions=use_image_descriptions,
             use_formula_transcription=use_formula_transcription,
             equation_ocr_lib=config.equation_ocr_lib,
-            auto_pull_models=auto_pull_models,
             recreate_collection=args.rebuild,
         )
         if ingest_info.get("skipped_existing_paper"):
@@ -210,7 +200,6 @@ def main() -> None:
             use_image_descriptions=use_image_descriptions,
             use_formula_transcription=use_formula_transcription,
             equation_ocr_lib=config.equation_ocr_lib,
-            auto_pull_models=auto_pull_models,
         )
         print("Answer:\n")
         print(result["answer"])
@@ -227,7 +216,6 @@ def main() -> None:
             use_image_descriptions=use_image_descriptions,
             use_formula_transcription=use_formula_transcription,
             equation_ocr_lib=config.equation_ocr_lib,
-            auto_pull_models=auto_pull_models,
         )
         return
 

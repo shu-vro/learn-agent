@@ -13,9 +13,9 @@ DEFAULT_PAPER_SOURCES = [
 ]
 DEFAULT_ARTIFACTS_DIR = Path("data/artifacts")
 DEFAULT_DOWNLOADS_DIR = Path("data/downloads")
-DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-DEFAULT_VISION_MODEL = "gemma4:e4b"
-DEFAULT_LLM_MODEL = "ollama:gemma4:e4b"
+DEFAULT_EMBEDDING_MODEL = "Octen/Octen-Embedding-0.6B"
+DEFAULT_VISION_MODEL = "ollama:gemma4:e2b"
+DEFAULT_LLM_MODEL = "ollama:gemma4:e2b"
 DEFAULT_OCR_LIB = os.environ.get("DEFAULT_OCR_LIB", "local").strip().lower()
 if DEFAULT_OCR_LIB not in {"local", "llm"}:
     DEFAULT_OCR_LIB = "local"

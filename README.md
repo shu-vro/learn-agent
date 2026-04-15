@@ -9,7 +9,7 @@ It uses:
 - Docling for PDF parsing and figure extraction
 - FAISS as the vector store
 - all-MiniLM-L6-v2 for embeddings
-- Ollama gemma4:e4b for answer generation
+- Ollama gemma4:e2b for answer generation
 - An Ollama vision model (default: moondream) for image descriptions
 
 ## Project Structure
@@ -100,12 +100,6 @@ DEFAULT_OCR_LIB=local
 uv run main.py ask "Summarize encoder-decoder attention" --source https://arxiv.org/pdf/1706.03762
 ```
 
-- Disable automatic model pull:
-
-```bash
-uv run main.py ask "How are positional encodings defined?" --no-auto-pull
-```
-
 ## Help
 
 ```bash
@@ -115,7 +109,7 @@ uv run main.py --help
 ```
 usage: main.py [-h] [--source SOURCES] [--collection-name COLLECTION_NAME] [--artifacts-dir ARTIFACTS_DIR]
                [--embedding-model EMBEDDING_MODEL] [--llm-model LLM_MODEL] [--vision-model VISION_MODEL] [--top-k TOP_K]
-               [--no-vision] [--no-image-description] [--no-formula-transcription] [--no-auto-pull]
+               [--no-vision] [--no-image-description] [--no-formula-transcription] [--equation-ocr-lib {local,llm}]
                {ingest,ask,chat} ...
 
 Multimodal RAG over Attention Is All You Need using Docling + Qdrant + Ollama.
@@ -145,7 +139,8 @@ options:
                         Disable image descriptions while keeping other vision features enabled.
   --no-formula-transcription
                         Disable formula LaTeX transcription from formula images.
-  --no-auto-pull        Do not auto-pull missing Ollama models.
+  --equation-ocr-lib {local,llm}
+                        Formula OCR backend for LaTeX transcription (local=pix2tex, llm=Ollama vision).
 ```
 
 > [!CAUTION]
