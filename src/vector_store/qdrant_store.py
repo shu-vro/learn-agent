@@ -1,12 +1,13 @@
 from langchain_core.documents import Document
-from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
+from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
+from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import (
     Distance,
     FieldCondition,
     Filter,
     MatchValue,
     VectorParams,
+    SparseVectorParams,
 )
 
 from src.config.constants import DEFAULT_EMBEDDING_MODEL
@@ -18,6 +19,12 @@ from src.config.env import (
 
 
 from src.lib.embeddings import build_embeddings
+
+
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
+SPARSE_EMBEDDING_MODEL = "Qdrant/bm25"
+sparse_embeddings = FastEmbedSparse(model_name=SPARSE_EMBEDDING_MODEL)
 
 
 def _build_qdrant_client() -> QdrantClient:
@@ -56,10 +63,39 @@ def ensure_qdrant_collection(
 
     target_client.create_collection(
         collection_name=collection_name,
-        vectors_config=VectorParams(
-            size=_get_embedding_dimension(embedding_model_name),
-            distance=Distance.COSINE,
-        ),
+        vectors_config={
+            DENSE_VECTOR_NAME: VectorParams(
+                size=_get_embedding_dimension(embedding_model_name),
+                distance=Distance.COSINE,
+            )
+        },
+        sparse_vectors_config={
+            SPARSE_VECTOR_NAME: SparseVectorParams(
+                index=models.SparseIndexParams(on_disk=False)
+            )
+        },
+    )
+
+
+def build_hybrid_qdrant_store(
+    collection_name: str,
+    embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
+    qdrant_client: QdrantClient | None = None,
+) -> QdrantVectorStore:
+    target_client = qdrant_client or client
+    ensure_qdrant_collection(
+        collection_name=collection_name,
+        embedding_model_name=embedding_model_name,
+        qdrant_client=target_client,
+    )
+    return QdrantVectorStore(
+        client=target_client,
+        collection_name=collection_name,
+        embedding=build_embeddings(embedding_model_name),
+        sparse_embedding=sparse_embeddings,
+        retrieval_mode=RetrievalMode.HYBRID,
+        vector_name=DENSE_VECTOR_NAME,
+        sparse_vector_name=SPARSE_VECTOR_NAME,
     )
 
 
@@ -104,16 +140,10 @@ def create_qdrant_index(
     ):
         target_client.delete_collection(collection_name=collection_name)
 
-    ensure_qdrant_collection(
+    vectorstore = build_hybrid_qdrant_store(
         collection_name=collection_name,
         embedding_model_name=embedding_model_name,
         qdrant_client=target_client,
-    )
-
-    vectorstore = QdrantVectorStore(
-        client=target_client,
-        collection_name=collection_name,
-        embedding=build_embeddings(embedding_model_name),
     )
     if documents:
         vectorstore.add_documents(documents)
@@ -132,10 +162,10 @@ def load_qdrant_index(
             f"Qdrant collection '{collection_name}' does not exist. Ingest first or change the collection name."
         )
 
-    return QdrantVectorStore(
-        client=target_client,
+    return build_hybrid_qdrant_store(
         collection_name=collection_name,
-        embedding=build_embeddings(embedding_model_name),
+        embedding_model_name=embedding_model_name,
+        qdrant_client=target_client,
     )
 
 
@@ -146,9 +176,7 @@ COLLECTIONS = {"store": "store", "chats": "chats"}
 for collection_alias in COLLECTIONS.values():
     ensure_qdrant_collection(collection_alias)
 
-
-vector_store = QdrantVectorStore(
-    client=client,
+vector_store = build_hybrid_qdrant_store(
     collection_name=COLLECTIONS["store"],
-    embedding=embeddings,
+    qdrant_client=client,
 )
