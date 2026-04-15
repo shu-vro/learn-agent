@@ -7,3 +7,8 @@
      3. check if the hash exists in qdrant. if it does, skip ingestion. if not, ingest and for now, print it.
 4. [ ] add support for multiple paper ingestion.
 5. [ ] introduce a stable database: eg postgres to store hash.
+6. [ ] integrate mem0 with rag_agent.
+7. [ ] make stable ui with web page
+   - [ ] use nextjs for frontend.
+     - [ ] react-mosaic for tiling
+   - [ ] use fastapi for backend.

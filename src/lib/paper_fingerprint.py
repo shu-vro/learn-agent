@@ -36,7 +36,6 @@ def _build_ssl_context() -> ssl.SSLContext:
 
         context.load_verify_locations(cafile=certifi.where())
     except Exception:
-        # Use system trust store when certifi is unavailable.
         pass
     return context
 

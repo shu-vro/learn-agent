@@ -4,7 +4,12 @@ from pathlib import Path
 
 from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
 from src.module.upload_docs import ingest_paper_to_qdrant
-from src.config.env import DEFAULT_LLM_MODEL, DEFAULT_QDRANT_COLLECTION
+from src.config.env import (
+    DEFAULT_LLM_MODEL,
+    DEFAULT_OCR_LIB,
+    DEFAULT_PAPER_SOURCES,
+    DEFAULT_QDRANT_COLLECTION,
+)
 from src.utils.time_utils import measure_time
 
 
@@ -15,8 +20,10 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        default="https://arxiv.org/pdf/1706.03762",
-        help="Paper source URL or local file path.",
+        dest="sources",
+        action="append",
+        default=None,
+        help="Paper source URL or local file path. Repeat this flag to ingest multiple papers.",
     )
     parser.add_argument(
         "--collection-name",
@@ -54,12 +61,31 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-vision",
         action="store_true",
-        help="Disable vision model and skip image descriptions.",
+        help="Disable all vision features (image descriptions and formula transcription).",
+    )
+    parser.add_argument(
+        "--no-image-description",
+        action="store_true",
+        help="Disable image descriptions while keeping other vision features enabled.",
+    )
+    parser.add_argument(
+        "--no-formula-transcription",
+        action="store_true",
+        help="Disable formula LaTeX transcription from formula images.",
     )
     parser.add_argument(
         "--no-auto-pull",
         action="store_true",
         help="Do not auto-pull missing Ollama models.",
+    )
+    parser.add_argument(
+        "--equation-ocr-lib",
+        choices=("local", "llm"),
+        default=DEFAULT_OCR_LIB,
+        help=(
+            "Formula OCR backend for LaTeX transcription "
+            "(local=pix2tex, llm=Ollama vision)."
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -94,12 +120,31 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         command_parser.add_argument(
             "--no-vision",
             action="store_true",
-            help="Disable vision model and skip image descriptions.",
+            help="Disable all vision features (image descriptions and formula transcription).",
+        )
+        command_parser.add_argument(
+            "--no-image-description",
+            action="store_true",
+            help="Disable image descriptions while keeping other vision features enabled.",
+        )
+        command_parser.add_argument(
+            "--no-formula-transcription",
+            action="store_true",
+            help="Disable formula LaTeX transcription from formula images.",
         )
         command_parser.add_argument(
             "--no-auto-pull",
             action="store_true",
             help="Do not auto-pull missing Ollama models.",
+        )
+        command_parser.add_argument(
+            "--equation-ocr-lib",
+            choices=("local", "llm"),
+            default=DEFAULT_OCR_LIB,
+            help=(
+                "Formula OCR backend for LaTeX transcription "
+                "(local=pix2tex, llm=Ollama vision)."
+            ),
         )
 
     return parser
@@ -111,25 +156,33 @@ def main() -> None:
     args = parser.parse_args()
 
     use_vision_model = not args.no_vision
+    use_image_descriptions = use_vision_model and not args.no_image_description
+    use_formula_transcription = use_vision_model and not args.no_formula_transcription
+    equation_ocr_lib = args.equation_ocr_lib
     auto_pull_models = not args.no_auto_pull
+    selected_sources = args.sources or list(DEFAULT_PAPER_SOURCES)
     config = RagAppConfig(
-        source=args.source,
+        sources=selected_sources,
         collection_name=args.collection_name,
         artifacts_root=Path(args.artifacts_dir),
         embedding_model=args.embedding_model,
         llm_model=args.llm_model,
         vision_model=args.vision_model,
+        equation_ocr_lib=equation_ocr_lib,
         top_k=args.top_k,
     )
 
     if args.command == "ingest":
         ingest_info = ingest_paper_to_qdrant(
-            source=config.source,
+            source=config.sources,
             collection_name=config.collection_name,
             artifacts_root=config.artifacts_root,
             embedding_model_name=config.embedding_model,
             vision_model_name=config.vision_model,
             use_vision_model=use_vision_model,
+            use_image_descriptions=use_image_descriptions,
+            use_formula_transcription=use_formula_transcription,
+            equation_ocr_lib=config.equation_ocr_lib,
             auto_pull_models=auto_pull_models,
             recreate_collection=args.rebuild,
         )
@@ -138,7 +191,12 @@ def main() -> None:
         else:
             print("Ingestion complete.")
         print(f"Indexed documents: {ingest_info['documents_indexed']}")
-        print(f"Paper SHA256: {ingest_info['paper_sha256']}")
+        paper_hashes = ingest_info.get("paper_sha256_list") or [
+            ingest_info["paper_sha256"]
+        ]
+        print("Paper SHA256 hashes:")
+        for paper_hash in paper_hashes:
+            print(f"- {paper_hash}")
         print(f"Qdrant collection: {ingest_info['collection_name']}")
         print(f"Artifacts dir: {ingest_info['artifacts_root']}")
         return
@@ -149,6 +207,9 @@ def main() -> None:
             config=config,
             rebuild_index=args.rebuild,
             use_vision_model=use_vision_model,
+            use_image_descriptions=use_image_descriptions,
+            use_formula_transcription=use_formula_transcription,
+            equation_ocr_lib=config.equation_ocr_lib,
             auto_pull_models=auto_pull_models,
         )
         print("Answer:\n")
@@ -163,6 +224,9 @@ def main() -> None:
             config=config,
             rebuild_index=args.rebuild,
             use_vision_model=use_vision_model,
+            use_image_descriptions=use_image_descriptions,
+            use_formula_transcription=use_formula_transcription,
+            equation_ocr_lib=config.equation_ocr_lib,
             auto_pull_models=auto_pull_models,
         )
         return

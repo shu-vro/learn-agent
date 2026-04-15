@@ -1,21 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
 from langchain.chat_models import init_chat_model
-from src.lib.paper_fingerprint import fingerprint_paper_source
 
-from src.vector_store.qdrant_store import (
-    load_qdrant_index,
-    qdrant_paper_hash_exists,
-)
 from src.config.env import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_OCR_LIB,
     DEFAULT_QDRANT_COLLECTION,
-    DEFAULT_PAPER_SOURCE,
+    DEFAULT_PAPER_SOURCES,
     DEFAULT_VISION_MODEL,
     DEFAULT_LLM_MODEL,
 )
@@ -24,12 +20,13 @@ from src.module.upload_docs import ingest_paper_to_qdrant
 
 @dataclass(slots=True)
 class RagAppConfig:
-    source: str = DEFAULT_PAPER_SOURCE
+    sources: list[str] = field(default_factory=lambda: list(DEFAULT_PAPER_SOURCES))
     collection_name: str = DEFAULT_QDRANT_COLLECTION
     artifacts_root: Path = DEFAULT_ARTIFACTS_DIR
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     llm_model: str = DEFAULT_LLM_MODEL
     vision_model: str = DEFAULT_VISION_MODEL
+    equation_ocr_lib: str = DEFAULT_OCR_LIB
     top_k: int = 5
 
 
@@ -98,58 +95,26 @@ def _get_vectorstore(
     config: RagAppConfig,
     rebuild_index: bool,
     use_vision_model: bool,
+    use_image_descriptions: bool,
+    use_formula_transcription: bool,
+    equation_ocr_lib: str,
     auto_pull_models: bool,
 ) -> tuple[Any, dict[str, Any]]:
-    paper_fingerprint = fingerprint_paper_source(config.source)
-    paper_sha256 = paper_fingerprint.sha256
+    if not config.sources:
+        raise ValueError("RagAppConfig.sources cannot be empty.")
 
-    if rebuild_index:
-        ingestion_info = ingest_paper_to_qdrant(
-            source=config.source,
-            collection_name=config.collection_name,
-            artifacts_root=config.artifacts_root,
-            embedding_model_name=config.embedding_model,
-            vision_model_name=config.vision_model,
-            use_vision_model=use_vision_model,
-            auto_pull_models=auto_pull_models,
-            recreate_collection=rebuild_index,
-            paper_fingerprint=paper_fingerprint,
-        )
-        return ingestion_info["vectorstore"], ingestion_info
-
-    if qdrant_paper_hash_exists(
-        collection_name=config.collection_name,
-        paper_sha256=paper_sha256,
-    ):
-        print(f"Paper already indexed in Qdrant. paper_sha256={paper_sha256}")
-        loaded_vectorstore = load_qdrant_index(
-            embedding_model_name=config.embedding_model,
-            collection_name=config.collection_name,
-        )
-        return loaded_vectorstore, {
-            "vectorstore": loaded_vectorstore,
-            "source": config.source,
-            "source_file": str(paper_fingerprint.local_path),
-            "paper_sha256": paper_sha256,
-            "collection_name": config.collection_name,
-            "artifacts_root": str(config.artifacts_root),
-            "documents_indexed": 0,
-            "embedding_model": config.embedding_model,
-            "vision_model": config.vision_model if use_vision_model else "disabled",
-            "skipped_existing_paper": True,
-        }
-
-    print(f"Paper hash not found in Qdrant. paper_sha256={paper_sha256}")
     ingestion_info = ingest_paper_to_qdrant(
-        source=config.source,
+        source=config.sources,
         collection_name=config.collection_name,
         artifacts_root=config.artifacts_root,
         embedding_model_name=config.embedding_model,
         vision_model_name=config.vision_model,
+        equation_ocr_lib=equation_ocr_lib,
         use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
         auto_pull_models=auto_pull_models,
-        recreate_collection=False,
-        paper_fingerprint=paper_fingerprint,
+        recreate_collection=rebuild_index,
     )
     return ingestion_info["vectorstore"], ingestion_info
 
@@ -159,12 +124,18 @@ def answer_question(
     config: RagAppConfig,
     rebuild_index: bool = False,
     use_vision_model: bool = True,
+    use_image_descriptions: bool = True,
+    use_formula_transcription: bool = True,
+    equation_ocr_lib: str = DEFAULT_OCR_LIB,
     auto_pull_models: bool = True,
 ) -> dict[str, Any]:
     vectorstore, ingestion_info = _get_vectorstore(
         config=config,
         rebuild_index=rebuild_index,
         use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
+        equation_ocr_lib=equation_ocr_lib,
         auto_pull_models=auto_pull_models,
     )
 
@@ -177,7 +148,7 @@ def answer_question(
     llm = ChatOllama(model=config.llm_model, temperature=0)
     prompt = (
         "You are a strict research-paper QA assistant. "
-        "Answer only from the provided context extracted from the paper 'Attention Is All You Need'. "
+        "Answer only from the provided context extracted from the indexed papers. "
         "If the answer is not present in context, explicitly say you could not find it in the indexed paper context.\n\n"
         f"Question:\n{question}\n\n"
         f"Context:\n{context}\n\n"
@@ -199,12 +170,18 @@ def interactive_chat(
     config: RagAppConfig,
     rebuild_index: bool = False,
     use_vision_model: bool = True,
+    use_image_descriptions: bool = True,
+    use_formula_transcription: bool = True,
+    equation_ocr_lib: str = DEFAULT_OCR_LIB,
     auto_pull_models: bool = True,
 ) -> None:
     vectorstore, _ = _get_vectorstore(
         config=config,
         rebuild_index=rebuild_index,
         use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
+        equation_ocr_lib=equation_ocr_lib,
         auto_pull_models=auto_pull_models,
     )
     # llm = ChatOllama(model=config.llm_model, temperature=0)

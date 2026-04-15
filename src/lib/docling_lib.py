@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable
 from src.utils.time_utils import measure_time
 
-import nltk
+from src.utils.textsplitters import chunk_text
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
     CodeFormulaVlmOptions,
@@ -15,7 +15,6 @@ from docling.datamodel.vlm_engine_options import TransformersVlmEngineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import FormulaItem, ImageRefMode, PictureItem
 from langchain_core.documents import Document
-from langchain_text_splitters import NLTKTextSplitter
 
 
 @measure_time
@@ -30,7 +29,6 @@ def _replace_formula_placeholders(
     return updated_text
 
 
-@measure_time
 def _sanitize_latex_expression(latex_expression: str) -> str:
     expression = latex_expression.strip()
     if not expression:
@@ -56,7 +54,6 @@ def _sanitize_latex_expression(latex_expression: str) -> str:
     return expression.strip()
 
 
-@measure_time
 def _sanitize_markdown_formulas(markdown_text: str) -> str:
     def _sanitize_block_formula(match: re.Match[str]) -> str:
         formula = match.group(1)
@@ -82,16 +79,64 @@ def _sanitize_markdown_formulas(markdown_text: str) -> str:
 
 
 @measure_time
+def _build_markdown_image_alt_text(caption: str, description: str) -> str:
+    caption_clean = re.sub(r"\s+", " ", caption).strip()
+    description_clean = re.sub(r"\s+", " ", description).strip()
+
+    # Avoid breaking markdown alt-text delimiters.
+    caption_clean = caption_clean.replace("[", "(").replace("]", ")")
+    description_clean = description_clean.replace("[", "(").replace("]", ")")
+
+    if caption_clean and description_clean:
+        return f"{caption_clean} | {description_clean}"
+    if caption_clean:
+        return caption_clean
+    if description_clean:
+        return description_clean
+
+    return "Image"
+
+
+@measure_time
+def _replace_markdown_image_alt_texts(
+    markdown_text: str, image_alt_texts: list[str]
+) -> str:
+    if not image_alt_texts:
+        return markdown_text
+
+    image_index = 0
+
+    def _replacement(match: re.Match[str]) -> str:
+        nonlocal image_index
+
+        if image_index >= len(image_alt_texts):
+            return match.group(0)
+
+        image_path = match.group("path")
+        alt_text = image_alt_texts[image_index]
+        image_index += 1
+        return f"![{alt_text}]({image_path})"
+
+    return re.sub(
+        r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)\n]+)\)",
+        _replacement,
+        markdown_text,
+    )
+
+
+@measure_time
 def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options = PdfPipelineOptions()
     pdf_pipeline_options.generate_page_images = True
     pdf_pipeline_options.generate_picture_images = True
     pdf_pipeline_options.images_scale = 2.0
 
-    # Enable formula enrichment to get LaTeX extraction.
+    # Keep native formula enrichment disabled for speed; undecoded formulas can
+    # be transcribed on demand from formula images during post-processing.
     pdf_pipeline_options.do_code_enrichment = False
-    pdf_pipeline_options.do_formula_enrichment = True
+    pdf_pipeline_options.do_formula_enrichment = False
     pdf_pipeline_options.do_picture_description = False
+    pdf_pipeline_options.do_picture_classification = False
 
     # Force Transformers runtime for code/formula stage to avoid MLX auto-runtime fallback logs.
     pdf_pipeline_options.code_formula_options = CodeFormulaVlmOptions.from_preset(
@@ -109,38 +154,6 @@ def _build_docling_converter() -> DocumentConverter:
             InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options)
         }
     )
-
-
-@measure_time
-def _ensure_nltk_resources() -> bool:
-    resources = ["tokenizers/punkt", "tokenizers/punkt_tab"]
-    for resource_path in resources:
-        try:
-            nltk.data.find(resource_path)
-        except LookupError:
-            return False
-
-    return True
-
-
-@measure_time
-def _chunk_text(
-    text: str, chunk_size: int = 1800, chunk_overlap: int = 250
-) -> list[str]:
-    if chunk_size <= chunk_overlap:
-        raise ValueError("chunk_size must be greater than chunk_overlap")
-
-    has_nltk_resources = _ensure_nltk_resources()
-    text_splitter = NLTKTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-    if has_nltk_resources:
-        chunks = text_splitter.split_text(text)
-    else:
-        sentence_tokenizer = nltk.tokenize.PunktSentenceTokenizer()
-        sentence_splits = sentence_tokenizer.tokenize(text)
-        chunks = text_splitter._merge_splits(sentence_splits, "\n\n")
-
-    return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
 # the extractor takes a massive amount of time (200+s for 15 page)
@@ -178,10 +191,14 @@ def docling_pdf_extractor(
                 image_mode=ImageRefMode.REFERENCED,
             )
             full_markdown = md_filename.read_text(encoding="utf-8")
+        formula_placeholder_token = "<!-- formula-not-decoded -->"
+        pending_placeholders = full_markdown.count(formula_placeholder_token)
 
         formula_counter = 0
         processed_formula_counter = 0
         formula_placeholder_replacements: list[str] = []
+        image_documents: list[Document] = []
+        markdown_image_alt_texts: list[str] = []
 
         with measure_time("formula_processing", tracker=time_tracker):
             for element, _level in conv_res.document.iterate_items():
@@ -197,19 +214,21 @@ def docling_pdf_extractor(
                         (element.text or "").strip()
                     )
                     formula_orig = (element.orig or "").strip()
-                    had_placeholder = not formula_text and bool(formula_orig)
 
                     formula_image_path: str | None = None
-                    formula_image = element.get_image(conv_res.document)
-                    if formula_image is not None:
-                        formula_image_filename = (
-                            formula_output_dir
-                            / f"{doc_filename}-formula-{formula_counter + 1}.png"
-                        )
-                        formula_image.save(formula_image_filename, "PNG")
-                        formula_image_path = str(formula_image_filename)
+                    needs_transcription = (
+                        not formula_text and formula_transcriber is not None
+                    )
+                    if needs_transcription:
+                        formula_image = element.get_image(conv_res.document)
+                        if formula_image is not None:
+                            formula_image_filename = (
+                                formula_output_dir
+                                / f"{doc_filename}-formula-{formula_counter + 1}.png"
+                            )
+                            formula_image.save(formula_image_filename, "PNG")
+                            formula_image_path = str(formula_image_filename)
 
-                        if not formula_text and formula_transcriber is not None:
                             try:
                                 transcribed = formula_transcriber(
                                     formula_image_filename,
@@ -226,63 +245,21 @@ def docling_pdf_extractor(
                         continue
 
                     formula_counter += 1
-                    page_no = element.prov[0].page_no if element.prov else None
-                    if formula_text:
-                        page_content = f"Formula LaTeX: {formula_text}"
-                        formula_status = "transcribed" if had_placeholder else "decoded"
-                    else:
-                        page_content = f"Formula source (not decoded): {formula_orig}"
-                        formula_status = "not_decoded"
-
-                    if had_placeholder and formula_text:
-                        formula_placeholder_replacements.append(formula_text)
-
-                    documents.append(
-                        Document(
-                            page_content=page_content,
-                            metadata={
-                                "source": file_path,
-                                "doc_id": doc_filename,
-                                "type": "formula",
-                                "formula_id": formula_counter,
-                                "formula_status": formula_status,
-                                "page": page_no,
-                                "path": formula_image_path,
-                            },
-                        )
+                    print(
+                        formula_text
+                        if formula_text
+                        else f"Original formula (not decoded): {formula_orig}"
                     )
+                    if formula_text and pending_placeholders > len(
+                        formula_placeholder_replacements
+                    ):
+                        formula_placeholder_replacements.append(formula_text)
 
         if formula_placeholder_replacements:
             full_markdown = _replace_formula_placeholders(
                 full_markdown,
                 formula_placeholder_replacements,
             )
-
-        # Final formula cleanup applies to both markdown export and chunking source.
-        full_markdown = _sanitize_markdown_formulas(full_markdown)
-        md_filename.write_text(full_markdown, encoding="utf-8")
-
-        with measure_time("text_chunking", tracker=time_tracker):
-            markdown_chunks = _chunk_text(
-                text=full_markdown,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-            )
-
-            for idx, chunk in enumerate(markdown_chunks, start=1):
-                documents.append(
-                    Document(
-                        page_content=chunk,
-                        metadata={
-                            "source": file_path,
-                            "doc_id": doc_filename,
-                            "type": "text_chunk",
-                            "chunk_id": idx,
-                            "chunk_total": len(markdown_chunks),
-                            "markdown_path": str(md_filename),
-                        },
-                    )
-                )
 
         with measure_time("image_processing", tracker=time_tracker):
             picture_counter = 0
@@ -319,6 +296,10 @@ def docling_pdf_extractor(
                                 f"Image description failed for {element_image_filename}: {err}"
                             )
 
+                    markdown_image_alt_texts.append(
+                        _build_markdown_image_alt_text(caption, picture_description)
+                    )
+
                     page_no = element.prov[0].page_no if element.prov else None
                     image_context_parts = [
                         f"Image extracted from: {file_path}",
@@ -338,7 +319,7 @@ def docling_pdf_extractor(
                         image_context_parts,
                     )
 
-                    documents.append(
+                    image_documents.append(
                         Document(
                             page_content="\n".join(image_context_parts),
                             metadata={
@@ -351,6 +332,40 @@ def docling_pdf_extractor(
                             },
                         )
                     )
+
+        if markdown_image_alt_texts:
+            full_markdown = _replace_markdown_image_alt_texts(
+                full_markdown,
+                markdown_image_alt_texts,
+            )
+
+        # Final formula cleanup applies to both markdown export and chunking source.
+        full_markdown = _sanitize_markdown_formulas(full_markdown)
+        md_filename.write_text(full_markdown, encoding="utf-8")
+
+        with measure_time("text_chunking", tracker=time_tracker):
+            markdown_chunks = chunk_text(
+                text=full_markdown,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+
+            for idx, chunk in enumerate(markdown_chunks, start=1):
+                documents.append(
+                    Document(
+                        page_content=chunk,
+                        metadata={
+                            "source": file_path,
+                            "doc_id": doc_filename,
+                            "type": "text_chunk",
+                            "chunk_id": idx,
+                            "chunk_total": len(markdown_chunks),
+                            "markdown_path": str(md_filename),
+                        },
+                    )
+                )
+
+        documents.extend(image_documents)
 
     print("Extraction time breakdown:")
     for key, value in time_tracker.items():

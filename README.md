@@ -64,10 +64,34 @@ uv run main.py chat
 
 ## Useful Options
 
-- Disable image vision enrichment:
+- Disable all vision enrichment (both image descriptions and formula transcription):
 
 ```bash
 uv run main.py ingest --rebuild --no-vision
+```
+
+- Keep formula LaTeX transcription but skip figure descriptions (faster than full vision mode):
+
+```bash
+uv run main.py ingest --rebuild --no-image-description
+```
+
+- Disable formula transcription only (keeps image descriptions enabled):
+
+```bash
+uv run main.py ingest --rebuild --no-formula-transcription
+```
+
+- Select formula OCR backend (`local` uses pix2tex and is default, `llm` uses Ollama vision):
+
+```bash
+uv run main.py ingest --rebuild --equation-ocr-lib llm
+```
+
+- Set default formula OCR backend from environment:
+
+```bash
+DEFAULT_OCR_LIB=local
 ```
 
 - Use a custom source:
@@ -89,23 +113,24 @@ uv run main.py --help
 ```
 
 ```
-usage: main.py [-h] [--source SOURCE] [--index-dir INDEX_DIR] [--artifacts-dir ARTIFACTS_DIR] [--embedding-model EMBEDDING_MODEL]
-               [--llm-model LLM_MODEL] [--vision-model VISION_MODEL] [--top-k TOP_K] [--no-vision] [--no-auto-pull]
+usage: main.py [-h] [--source SOURCES] [--collection-name COLLECTION_NAME] [--artifacts-dir ARTIFACTS_DIR]
+               [--embedding-model EMBEDDING_MODEL] [--llm-model LLM_MODEL] [--vision-model VISION_MODEL] [--top-k TOP_K]
+               [--no-vision] [--no-image-description] [--no-formula-transcription] [--no-auto-pull]
                {ingest,ask,chat} ...
 
-Multimodal RAG over Attention Is All You Need using Docling + FAISS + Ollama.
+Multimodal RAG over Attention Is All You Need using Docling + Qdrant + Ollama.
 
 positional arguments:
   {ingest,ask,chat}
-    ingest              Ingest the paper and build FAISS index.
+    ingest              Ingest the paper and write vectors to Qdrant.
     ask                 Ask one question to the RAG agent.
     chat                Run an interactive RAG chat session.
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       Paper source URL or local file path.
-  --index-dir INDEX_DIR
-                        Directory where the FAISS index is stored.
+  --source SOURCES      Paper source URL or local file path. Repeat this flag to ingest multiple papers.
+  --collection-name COLLECTION_NAME, --index-dir COLLECTION_NAME
+                        Qdrant collection name for indexed paper documents.
   --artifacts-dir ARTIFACTS_DIR
                         Directory for extracted markdown and images.
   --embedding-model EMBEDDING_MODEL
@@ -115,7 +140,11 @@ options:
   --vision-model VISION_MODEL
                         Ollama vision model used for image descriptions.
   --top-k TOP_K         Number of retrieved chunks for each question.
-  --no-vision           Disable vision model and skip image descriptions.
+  --no-vision           Disable all vision features (image descriptions and formula transcription).
+  --no-image-description
+                        Disable image descriptions while keeping other vision features enabled.
+  --no-formula-transcription
+                        Disable formula LaTeX transcription from formula images.
   --no-auto-pull        Do not auto-pull missing Ollama models.
 ```
 
