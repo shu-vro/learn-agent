@@ -1,5 +1,5 @@
 from langchain_huggingface import HuggingFaceEmbeddings
-from src.config.env import DEFAULT_EMBEDDING_MODEL
+from src.config.constants import DEFAULT_EMBEDDING_MODEL
 
 
 def build_embeddings(

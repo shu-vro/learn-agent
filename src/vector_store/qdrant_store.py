@@ -9,12 +9,14 @@ from qdrant_client.http.models import (
     VectorParams,
 )
 
+from src.config.constants import DEFAULT_EMBEDDING_MODEL
 from src.config.env import (
-    DEFAULT_EMBEDDING_MODEL,
     QDRANT_API_KEY,
     QDRANT_HOST,
     QDRANT_PORT,
 )
+
+
 from src.lib.embeddings import build_embeddings
 
 

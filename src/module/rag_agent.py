@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 from langchain_ollama import ChatOllama
 from langchain.chat_models import init_chat_model
 
-from src.config.env import (
+from src.config.constants import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_OCR_LIB,

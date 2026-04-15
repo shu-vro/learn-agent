@@ -6,7 +6,7 @@ from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from src.config.env import DEFAULT_DOWNLOADS_DIR
+from src.config.constants import DEFAULT_DOWNLOADS_DIR
 
 
 @dataclass(slots=True, frozen=True)

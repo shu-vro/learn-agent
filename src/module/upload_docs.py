@@ -13,7 +13,7 @@ from src.vector_store.qdrant_store import (
 from src.lib.ollama_vision import OllamaVisionClient
 from src.lib.pix2tex_ocr import Pix2TexFormulaTranscriber
 from src.utils.time_utils import measure_time
-from src.config.env import (
+from src.config.constants import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_OCR_LIB,

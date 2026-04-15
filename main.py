@@ -4,7 +4,7 @@ from pathlib import Path
 
 from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
 from src.module.upload_docs import ingest_paper_to_qdrant
-from src.config.env import (
+from src.config.constants import (
     DEFAULT_LLM_MODEL,
     DEFAULT_OCR_LIB,
     DEFAULT_PAPER_SOURCES,

@@ -1,7 +1,7 @@
 from langchain.chat_models import init_chat_model
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-from src.config.env import DEFAULT_LLM_MODEL
+from src.config.constants import DEFAULT_LLM_MODEL
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 import src.config.bootstrap
 

@@ -6,7 +6,7 @@ import sys
 from rich.pretty import install as install_rich_pretty, pretty_repr
 from rich.traceback import install as install_rich_traceback
 
-from src.config.env import ENVIRONMENT, LOG_LEVEL
+from src.config.constants import ENVIRONMENT, LOG_LEVEL
 
 configure_logging(LOG_LEVEL, ENVIRONMENT)
 

@@ -12,10 +12,6 @@ class UsageAggregatorCallback(BaseCallbackHandler):
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         """Run when LLM ends running."""
-        print(
-            f"LLM response received for task '{self.task_name}':",
-            response.generations[0][0].message.usage_metadata,
-        )
 
         for messages in response.generations[0]:
             if messages.message.usage_metadata:
