@@ -25,6 +25,7 @@ DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
 SPARSE_EMBEDDING_MODEL = "Qdrant/bm25"
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_EMBEDDING_MODEL)
+embeddings = build_embeddings()
 
 
 def _build_qdrant_client() -> QdrantClient:
@@ -39,9 +40,8 @@ def _get_collection_names(qdrant_client: QdrantClient) -> set[str]:
     }
 
 
-def _get_embedding_dimension(embedding_model_name: str) -> int:
-    embedding = build_embeddings(embedding_model_name)
-    return len(embedding.embed_query("dimension probe"))
+def _get_embedding_dimension() -> int:
+    return len(embeddings.embed_query("dimension probe"))
 
 
 def qdrant_collection_exists(
@@ -65,7 +65,7 @@ def ensure_qdrant_collection(
         collection_name=collection_name,
         vectors_config={
             DENSE_VECTOR_NAME: VectorParams(
-                size=_get_embedding_dimension(embedding_model_name),
+                size=_get_embedding_dimension(),
                 distance=Distance.COSINE,
             )
         },
@@ -91,7 +91,7 @@ def build_hybrid_qdrant_store(
     return QdrantVectorStore(
         client=target_client,
         collection_name=collection_name,
-        embedding=build_embeddings(embedding_model_name),
+        embedding=embeddings,
         sparse_embedding=sparse_embeddings,
         retrieval_mode=RetrievalMode.HYBRID,
         vector_name=DENSE_VECTOR_NAME,
@@ -170,7 +170,6 @@ def load_qdrant_index(
 
 
 client = _build_qdrant_client()
-embeddings = build_embeddings()
 
 COLLECTIONS = {"store": "store", "chats": "chats"}
 for collection_alias in COLLECTIONS.values():

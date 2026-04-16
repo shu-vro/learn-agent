@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "certifi>=2026.2.25",
     "docling>=2.88.0",
     "faiss-cpu>=1.13.2",
@@ -26,4 +27,5 @@ dependencies = [
     "qdrant-client>=1.17.1",
     "rich>=15.0.0",
     "sentence-transformers>=5.4.0",
+    "sqlalchemy>=2.0.49",
 ]
