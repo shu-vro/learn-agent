@@ -23,7 +23,7 @@ class UsageAggregatorCallback(BaseCallbackHandler):
                     {"warning": "No usage_metadata found"}
                 )
 
-    def get_aggregated_usage(self) -> List[Dict[str, Any]]:
+    def get_aggregated_usage(self) -> List[Dict[str, list[Dict[str, Any]]]]:
         """Return the aggregated usage metadata."""
         return self.aggregated_usage
 

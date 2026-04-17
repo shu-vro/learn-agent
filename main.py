@@ -1,6 +1,7 @@
 import argparse
 import src.config.bootstrap
 from pathlib import Path
+from typing import Any
 
 from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
 from src.module.upload_docs import ingest_paper_to_qdrant
@@ -13,6 +14,43 @@ from src.config.constants import (
     DEFAULT_VISION_MODEL,
 )
 from src.utils.time_utils import measure_time
+
+
+def _ingest_documents(
+    config: RagAppConfig,
+    *,
+    rebuild: bool,
+    use_vision_model: bool,
+    use_image_descriptions: bool,
+    use_formula_transcription: bool,
+) -> dict[str, Any]:
+    return ingest_paper_to_qdrant(
+        source=config.sources,
+        collection_name=config.collection_name,
+        artifacts_root=config.artifacts_root,
+        embedding_model_name=config.embedding_model,
+        vision_model_name=config.vision_model,
+        use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
+        equation_ocr_lib=config.equation_ocr_lib,
+        recreate_collection=rebuild,
+    )
+
+
+def _print_ingestion_summary(ingest_info: dict[str, Any]) -> None:
+    if ingest_info.get("skipped_existing_paper"):
+        print("Paper already indexed. Skipped ingestion.")
+    else:
+        print("Ingestion complete.")
+
+    print(f"Indexed documents: {ingest_info['documents_indexed']}")
+    paper_hashes = ingest_info.get("paper_sha256_list") or [ingest_info["paper_sha256"]]
+    print("Paper SHA256 hashes:")
+    for paper_hash in paper_hashes:
+        print(f"- {paper_hash}")
+    print(f"Qdrant collection: {ingest_info['collection_name']}")
+    print(f"Artifacts dir: {ingest_info['artifacts_root']}")
 
 
 @measure_time
@@ -144,80 +182,62 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 @measure_time
 def main() -> None:
-    parser = _build_cli_parser()
-    args = parser.parse_args()
+    try:
+        parser = _build_cli_parser()
+        args = parser.parse_args()
 
-    use_vision_model = not args.no_vision
-    use_image_descriptions = use_vision_model and not args.no_image_description
-    use_formula_transcription = use_vision_model and not args.no_formula_transcription
-    equation_ocr_lib = args.equation_ocr_lib
-    selected_sources = args.sources or list(DEFAULT_PAPER_SOURCES)
-    config = RagAppConfig(
-        sources=selected_sources,
-        collection_name=args.collection_name,
-        artifacts_root=Path(args.artifacts_dir),
-        embedding_model=args.embedding_model,
-        llm_model=args.llm_model,
-        vision_model=args.vision_model,
-        equation_ocr_lib=equation_ocr_lib,
-        top_k=args.top_k,
-    )
-
-    if args.command == "ingest":
-        ingest_info = ingest_paper_to_qdrant(
-            source=config.sources,
-            collection_name=config.collection_name,
-            artifacts_root=config.artifacts_root,
-            embedding_model_name=config.embedding_model,
-            vision_model_name=config.vision_model,
-            use_vision_model=use_vision_model,
-            use_image_descriptions=use_image_descriptions,
-            use_formula_transcription=use_formula_transcription,
-            equation_ocr_lib=config.equation_ocr_lib,
-            recreate_collection=args.rebuild,
+        use_vision_model = not args.no_vision
+        use_image_descriptions = use_vision_model and not args.no_image_description
+        use_formula_transcription = (
+            use_vision_model and not args.no_formula_transcription
         )
-        if ingest_info.get("skipped_existing_paper"):
-            print("Paper already indexed. Skipped ingestion.")
-        else:
-            print("Ingestion complete.")
-        print(f"Indexed documents: {ingest_info['documents_indexed']}")
-        paper_hashes = ingest_info.get("paper_sha256_list") or [
-            ingest_info["paper_sha256"]
-        ]
-        print("Paper SHA256 hashes:")
-        for paper_hash in paper_hashes:
-            print(f"- {paper_hash}")
-        print(f"Qdrant collection: {ingest_info['collection_name']}")
-        print(f"Artifacts dir: {ingest_info['artifacts_root']}")
-        return
-
-    if args.command == "ask":
-        result = answer_question(
-            question=args.question,
-            config=config,
-            rebuild_index=args.rebuild,
-            use_vision_model=use_vision_model,
-            use_image_descriptions=use_image_descriptions,
-            use_formula_transcription=use_formula_transcription,
-            equation_ocr_lib=config.equation_ocr_lib,
+        equation_ocr_lib = args.equation_ocr_lib
+        selected_sources = args.sources or list(DEFAULT_PAPER_SOURCES)
+        config = RagAppConfig(
+            sources=selected_sources,
+            collection_name=args.collection_name,
+            artifacts_root=Path(args.artifacts_dir),
+            embedding_model=args.embedding_model,
+            llm_model=args.llm_model,
+            vision_model=args.vision_model,
+            equation_ocr_lib=equation_ocr_lib,
+            top_k=args.top_k,
         )
-        print("Answer:\n")
-        print(result["answer"])
-        print("\nSources:")
-        for line in result["source_summaries"]:
-            print(f"- {line}")
-        return
 
-    if args.command == "chat":
-        interactive_chat(
-            config=config,
-            rebuild_index=args.rebuild,
-            use_vision_model=use_vision_model,
-            use_image_descriptions=use_image_descriptions,
-            use_formula_transcription=use_formula_transcription,
-            equation_ocr_lib=config.equation_ocr_lib,
-        )
-        return
+        if args.command == "ingest":
+            ingest_info = _ingest_documents(
+                config,
+                rebuild=args.rebuild,
+                use_vision_model=use_vision_model,
+                use_image_descriptions=use_image_descriptions,
+                use_formula_transcription=use_formula_transcription,
+            )
+            _print_ingestion_summary(ingest_info)
+            return
+
+        if args.rebuild:
+            print(f"Rebuilding index before '{args.command}'...")
+            ingest_info = _ingest_documents(
+                config,
+                rebuild=True,
+                use_vision_model=use_vision_model,
+                use_image_descriptions=use_image_descriptions,
+                use_formula_transcription=use_formula_transcription,
+            )
+            _print_ingestion_summary(ingest_info)
+
+        if args.command == "ask":
+            answer_question(
+                question=args.question,
+                config=config,
+            )
+            return
+
+        if args.command == "chat":
+            interactive_chat(config=config)
+            return
+    except KeyboardInterrupt:
+        print("\nInterrupted by user. Exiting.")
 
 
 if __name__ == "__main__":

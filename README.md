@@ -1,25 +1,27 @@
-# Multimodal RAG over Attention Is All You Need
+# Multimodal RAG over Research Papers
 
-This project builds a local multimodal RAG pipeline for the paper below:
+This project builds a local multimodal RAG pipeline over one or more papers using Docling ingestion, Qdrant retrieval, and Ollama generation.
+
+Default paper sources:
 
 - https://arxiv.org/pdf/1706.03762
+- https://arxiv.org/pdf/2603.15031
 
 It uses:
 
-- Docling for PDF parsing and figure extraction
-- FAISS as the vector store
-- all-MiniLM-L6-v2 for embeddings
-- Ollama gemma4:e2b for answer generation
-- An Ollama vision model (default: moondream) for image descriptions
+- Docling for PDF parsing, markdown extraction, and artifact/image generation
+- Qdrant (hybrid dense + sparse retrieval via `langchain-qdrant`)
+- `Octen/Octen-Embedding-0.6B` for dense embeddings
+- Ollama `gemma4:e2b` for response generation
+- Optional formula OCR (`pix2tex` or Ollama vision, controlled by `--equation-ocr-lib`)
 
 ## Project Structure
 
-- src/lib/docling_lib.py: document conversion, chunking, image extraction, multimodal doc creation
-- src/lib/ollama_vision.py: local vision-captioning client through Ollama API
-- src/lib/faiss_store.py: FAISS build/load helpers
-- src/module/upload_docs.py: ingestion workflow from source PDF into FAISS
-- src/module/rag_agent.py: retrieval + Gemma4 answer agent
-- main.py: CLI entrypoint (ingest, ask, chat)
+- `src/module/upload_docs.py`: ingestion workflow from source PDF(s) into Qdrant
+- `src/module/rag_agent.py`: retrieval + strict context-grounded QA/chat agent
+- `src/vector_store/qdrant_store.py`: Qdrant client, collection helpers, hybrid vector store
+- `src/lib/docling_lib.py`: Docling conversion, chunking, and artifact extraction
+- `main.py`: CLI entrypoint (`ingest`, `ask`, `chat`)
 
 ## Prerequisites
 
@@ -29,15 +31,21 @@ It uses:
 uv sync
 ```
 
-2. Make sure Ollama is running.
+2. Make sure Qdrant is running (default: `localhost:6333`).
 
-3. Pull required Ollama models:
+Example local run:
 
 ```bash
-ollama pull gemma4:e4b
+docker run --rm -p 6333:6333 qdrant/qdrant
 ```
 
-If you prefer a different vision model, set it with `--vision-model`.
+3. Make sure Ollama is running.
+
+4. Pull required Ollama model(s):
+
+```bash
+ollama pull gemma4:e2b
+```
 
 ## Build the Index
 
@@ -45,15 +53,18 @@ If you prefer a different vision model, set it with `--vision-model`.
 uv run main.py ingest --rebuild
 ```
 
-The command writes:
-
-- FAISS index to `data/faiss_db`
-- Extracted markdown and images to `data/artifacts`
+This ingests documents into the Qdrant collection (default: `store`) and writes extracted artifacts under `data/artifacts`.
 
 ## Ask a Single Question
 
 ```bash
 uv run main.py ask "What is the core idea of scaled dot-product attention?"
+```
+
+Optional: force re-ingestion before asking.
+
+```bash
+uv run main.py ask "What is the core idea of scaled dot-product attention?" --rebuild
 ```
 
 ## Start Interactive Chat
@@ -62,43 +73,59 @@ uv run main.py ask "What is the core idea of scaled dot-product attention?"
 uv run main.py chat
 ```
 
+Optional: force re-ingestion before chat.
+
+```bash
+uv run main.py chat --rebuild
+```
+
+## Current Agent Behavior
+
+- Answers are constrained to retrieved context; if information is missing, the agent explicitly says it could not find it in indexed context.
+- Responses are streamed token-by-token in the terminal.
+- Source lines are printed after each answer (`type`, `source`, `page`, `image`).
+- `chat` mode keeps in-memory conversation state and enables `SummarizationMiddleware` (trigger: 500 tokens, keep last 2 messages).
+- Usage metadata is printed in `ask` mode per call and aggregated at the end of `chat` mode.
+
 ## Useful Options
 
-- Disable all vision enrichment (both image descriptions and formula transcription):
+- Ingest multiple sources:
+
+```bash
+uv run main.py ingest --source https://arxiv.org/pdf/1706.03762 --source https://arxiv.org/pdf/2603.15031
+```
+
+- Set retrieval depth:
+
+```bash
+uv run main.py ask "Summarize encoder-decoder attention" --top-k 8
+```
+
+- Disable all vision enrichment:
 
 ```bash
 uv run main.py ingest --rebuild --no-vision
 ```
 
-- Keep formula LaTeX transcription but skip figure descriptions (faster than full vision mode):
+- Disable only image descriptions:
 
 ```bash
 uv run main.py ingest --rebuild --no-image-description
 ```
 
-- Disable formula transcription only (keeps image descriptions enabled):
+- Disable only formula transcription:
 
 ```bash
 uv run main.py ingest --rebuild --no-formula-transcription
 ```
 
-- Select formula OCR backend (`local` uses pix2tex and is default, `llm` uses Ollama vision):
+- Select formula OCR backend:
 
 ```bash
 uv run main.py ingest --rebuild --equation-ocr-lib llm
 ```
 
-- Set default formula OCR backend from environment:
-
-```bash
-DEFAULT_OCR_LIB=local
-```
-
-- Use a custom source:
-
-```bash
-uv run main.py ask "Summarize encoder-decoder attention" --source https://arxiv.org/pdf/1706.03762
-```
+Note: current retrieval in `rag_agent` reads from the default collection (`store`) during `ask/chat`.
 
 ## Help
 
