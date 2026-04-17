@@ -30,6 +30,8 @@ from src.config.constants import (
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.vector_store.qdrant_store import vector_store
 from src.utils.time_utils import measure_time
+from src.agent.tools.document_retriever import retrieve_context
+from src.agent.prompts import main_agent_system_prompt
 
 
 @dataclass(slots=True)
@@ -42,23 +44,6 @@ class RagAppConfig:
     vision_model: str = DEFAULT_VISION_MODEL
     equation_ocr_lib: str = DEFAULT_OCR_LIB
     top_k: int = 5
-
-
-def _format_context(documents: list[Document]) -> str:
-    """this is for llm prompt."""
-    context_blocks: list[str] = []
-
-    for idx, doc in enumerate(documents, start=1):
-        meta = doc.metadata
-        block_header = (
-            f"[Source {idx}] type={meta.get('type', 'unknown')}, "
-            f"source={meta.get('source', 'unknown')}, "
-            f"page={meta.get('page', 'n/a')}, "
-            f"image_path={meta.get('path', 'n/a')}"
-        )
-        context_blocks.append(f"{block_header}\n{doc.page_content}")
-
-    return "\n\n".join(context_blocks)
 
 
 def _source_summary_lines(documents: list[Document]) -> list[str]:
@@ -74,21 +59,34 @@ def _source_summary_lines(documents: list[Document]) -> list[str]:
                     f"source={meta.get('source', 'unknown')}",
                     f"page={meta.get('page', 'n/a')}",
                     f"image={meta.get('path', 'n/a')}",
+                    f"similarity_score={meta.get('similarity_score', 'n/a')}",
                 ]
             )
         )
     return lines
 
 
-@measure_time
-def _context_making_strategy(
-    question: str, messages: list[BaseMessage], config: RagAppConfig
-) -> list[Document]:
-    retrieved_docs = vector_store.similarity_search(
-        question, k=config.top_k, score_threshold=0.5
-    )
-    retrieved_docs = retrieved_docs[: config.top_k]
-    return retrieved_docs
+def _content_to_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                text_parts.append(item)
+                continue
+            if isinstance(item, dict):
+                if isinstance(item.get("text"), str):
+                    text_parts.append(item["text"])
+                    continue
+                if isinstance(item.get("content"), str):
+                    text_parts.append(item["content"])
+                    continue
+            text_parts.append(str(item))
+        return "\n".join(part for part in text_parts if part)
+    return str(content)
 
 
 @measure_time
@@ -113,15 +111,7 @@ def answer_question(
     Returns:
     """
 
-    retrieved_docs = _context_making_strategy(question, messages or [], config)
-    context = _format_context(retrieved_docs)
-
-    prompt = (
-        "You are a strict research-paper QA assistant. "
-        "Answer only from the provided context extracted from the indexed papers. "
-        "If the answer is not present in context, explicitly say you could not find it in the indexed paper context.\n\n"
-        "Provide a concise answer followed by evidence bullets that reference source numbers."
-    )
+    prompt = main_agent_system_prompt
     system_prompt = SystemMessage(content=prompt)
 
     SUMMARIZATION_AGGREGATOR_KEY = "summarization_calls"
@@ -143,12 +133,14 @@ def answer_question(
         callbacks=[summarization_aggregator] if summarization_aggregator else None,
     )
 
+    tools = [retrieve_context]
+
     agent = create_agent(
         llm,
-        tools=[],
+        tools=tools,
         middleware=[
             SummarizationMiddleware(
-                model=summarization_llm, trigger=("tokens", 500), keep=("messages", 2)
+                model=summarization_llm, trigger=("tokens", 4000), keep=("messages", 10)
             )
         ],
         system_prompt=system_prompt,
@@ -166,8 +158,9 @@ def answer_question(
     # answer_text = response.content if hasattr(response, "content") else str(response)
 
     answer_text = ""
+    pending_tool_calls: dict[str, dict[str, Any]] = {}
     for chunk in agent.stream(
-        {"messages": (f"Question:\n{question}\n\n" f"Context:\n{context}\n\n")},
+        {"messages": (f"Question:\n{question}\n\n")},
         config=runnable_config,
         stream_mode=["messages", "updates"],
         version="v2",
@@ -180,19 +173,43 @@ def answer_question(
 
         if chunk["type"] == "updates":
             token = chunk["data"]
-            ai_message = (token.get("model") or {}).get("messages", [None])[0]
-            if ai_message and ai_message.content:
-                answer_text += (
-                    ai_message.content if ai_message and ai_message.content else ""
-                )
-            elif token.get("SummarizationMiddleware.before_model"):
+            if token.get("SummarizationMiddleware.before_model"):
                 print("\n---------Summarizing Past Messages---------\n")
-            else:
-                print(token)
+                continue
+
+            model_message = (token.get("model") or {}).get("messages", [None])[-1]
+            if isinstance(model_message, AIMessage):
+                if model_message.tool_calls:
+                    for tool_call in model_message.tool_calls:
+                        tool_call_id = tool_call.get("id")
+                        if tool_call_id:
+                            pending_tool_calls[tool_call_id] = {
+                                "name": tool_call.get("name", "unknown"),
+                                "args": tool_call.get("args", {}),
+                            }
+
+                model_text = _content_to_text(model_message.content)
+                if model_text:
+                    answer_text += model_text
+
+            tool_message = (token.get("tools") or {}).get("messages", [None])[-1]
+            if isinstance(tool_message, ToolMessage):
+                tool_meta = pending_tool_calls.get(tool_message.tool_call_id, {})
+                tool_name = tool_meta.get(
+                    "name", getattr(tool_message, "name", "unknown")
+                )
+                tool_args = tool_meta.get("args", {})
+                # tool_response = _content_to_text(tool_message.content)
+                artifact = (
+                    tool_message["artifact"] if "artifact" in tool_message else None
+                )
+
+                print("\n---------tool fired---------")
+                print(f"-name: {tool_name}")
+                print(f"-args (as you got): {tool_args}")
+                _source_summary_lines(artifact) if artifact else None
 
     print("\n\nSources:")
-    for line in _source_summary_lines(retrieved_docs):
-        print(f"- {line}")
 
     if mode == "ask":
         print(

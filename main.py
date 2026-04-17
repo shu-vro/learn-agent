@@ -3,7 +3,7 @@ import src.config.bootstrap
 from pathlib import Path
 from typing import Any
 
-from src.module.rag_agent import RagAppConfig, answer_question, interactive_chat
+from src.agent.rag_agent import RagAppConfig, answer_question, interactive_chat
 from src.module.upload_docs import ingest_paper_to_qdrant
 from src.config.constants import (
     DEFAULT_LLM_MODEL,
