@@ -4,6 +4,8 @@ from src.config.constants import DEFAULT_VISION_MODEL
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 
+from src.utils.usage_aggregator_callback import UsageAggregatorCallback
+
 
 class OllamaVisionClient:
     def __init__(
@@ -19,10 +21,14 @@ class OllamaVisionClient:
         if self._vision_llm is not None:
             return self._vision_llm
 
+        global_usage_aggregator = UsageAggregatorCallback("ollama_vision_calls")
+
         self._vision_llm = init_chat_model(
             model=self.model,
             temperature=0,
             base_url=self.base_url,
+            configurable_fields="any",
+            callbacks=[global_usage_aggregator],
         )
         return self._vision_llm
 

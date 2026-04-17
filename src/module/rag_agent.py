@@ -16,6 +16,7 @@ from src.config.constants import (
     DEFAULT_LLM_MODEL,
 )
 from src.module.upload_docs import ingest_paper_to_qdrant
+from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 
 
 @dataclass(slots=True)
@@ -179,7 +180,13 @@ def interactive_chat(
         equation_ocr_lib=equation_ocr_lib,
     )
     # llm = ChatOllama(model=config.llm_model, temperature=0)
-    llm = init_chat_model(model=config.llm_model, temperature=0)
+    global_usage_aggregator = UsageAggregatorCallback("test_task")
+    llm = init_chat_model(
+        model=config.llm_model,
+        temperature=0,
+        configurable_fields="any",
+        callbacks=[global_usage_aggregator],
+    )
 
     print("RAG chat is ready. Type a question, or 'exit' to stop.")
     while True:
@@ -213,3 +220,8 @@ def interactive_chat(
         print("\nSources:")
         for line in _source_summary_lines(retrieved_docs):
             print(f"- {line}")
+
+        print(
+            "\nAggregated Usage Metadata:",
+            global_usage_aggregator.get_aggregated_usage(),
+        )

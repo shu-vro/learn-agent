@@ -19,7 +19,7 @@ def configure_logging(log_level: str, environment: str = "development") -> None:
     logger.add(
         rich_handler,
         level=log_level,
-        format="[{level}] <{time:YYYY-MM-DD HH:mm:ss.SSS Z}> {name}:{function}:{line} - {message}",
+        format="[{level}] {name}:{function}:{line} - {message}",
         backtrace=is_development,
         diagnose=is_development,
         colorize=False,
