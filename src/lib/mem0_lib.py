@@ -1,5 +1,5 @@
 import asyncio
-from mem0 import AsyncMemory, Memory
+from mem0 import Memory
 from mem0.configs.base import MemoryConfig
 from src.config.mem0_config import config
 

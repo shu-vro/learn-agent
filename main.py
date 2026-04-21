@@ -1,5 +1,5 @@
 import argparse
-import src.config.bootstrap
+import src.config.bootstrap  # noqa: F401
 from pathlib import Path
 from typing import Any
 

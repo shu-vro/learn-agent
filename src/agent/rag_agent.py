@@ -9,11 +9,9 @@ from langchain_core.messages import (
     SystemMessage,
     BaseMessage,
     ToolMessage,
-    AIMessageChunk,
 )
 from langchain.agents.middleware import SummarizationMiddleware
 from langgraph.checkpoint.memory import InMemorySaver
-from langchain_ollama import ChatOllama
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
@@ -28,7 +26,6 @@ from src.config.constants import (
     DEFAULT_LLM_MODEL,
 )
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
-from src.vector_store.qdrant_store import vector_store
 from src.utils.time_utils import measure_time
 from src.agent.tools.document_retriever import retrieve_context
 from src.agent.prompts import main_agent_system_prompt

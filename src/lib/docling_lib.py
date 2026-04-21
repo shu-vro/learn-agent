@@ -8,7 +8,6 @@ from src.utils.textsplitters import chunk_text
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
     CodeFormulaVlmOptions,
-    OcrMacOptions,
     PdfPipelineOptions,
     OcrMacOptions,
 )
@@ -216,7 +215,6 @@ def docling_pdf_extractor(
                     )
                     formula_orig = (element.orig or "").strip()
 
-                    formula_image_path: str | None = None
                     needs_transcription = (
                         not formula_text and formula_transcriber is not None
                     )
@@ -228,7 +226,6 @@ def docling_pdf_extractor(
                                 / f"{doc_filename}-formula-{formula_counter + 1}.png"
                             )
                             formula_image.save(formula_image_filename, "PNG")
-                            formula_image_path = str(formula_image_filename)
 
                             try:
                                 transcribed = formula_transcriber(
