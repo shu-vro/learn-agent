@@ -10,6 +10,7 @@ from docling.datamodel.pipeline_options import (
     CodeFormulaVlmOptions,
     OcrMacOptions,
     PdfPipelineOptions,
+    OcrMacOptions,
 )
 from docling.datamodel.vlm_engine_options import TransformersVlmEngineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -79,20 +80,14 @@ def _sanitize_markdown_formulas(markdown_text: str) -> str:
 
 
 @measure_time
-def _build_markdown_image_alt_text(caption: str, description: str) -> str:
-    caption_clean = re.sub(r"\s+", " ", caption).strip()
+def _build_markdown_image_alt_text(description: str) -> str:
     description_clean = re.sub(r"\s+", " ", description).strip()
 
     # Avoid breaking markdown alt-text delimiters.
-    caption_clean = caption_clean.replace("[", "(").replace("]", ")")
     description_clean = description_clean.replace("[", "(").replace("]", ")")
 
-    if caption_clean and description_clean:
-        return f"{caption_clean} | {description_clean}"
-    if caption_clean:
-        return caption_clean
     if description_clean:
-        return description_clean
+        return f"{description_clean}"
 
     return "Image"
 
@@ -133,6 +128,7 @@ def _build_docling_converter() -> DocumentConverter:
 
     # Keep native formula enrichment disabled for speed; undecoded formulas can
     # be transcribed on demand from formula images during post-processing.
+    pdf_pipeline_options.do_ocr = True
     pdf_pipeline_options.do_code_enrichment = False
     pdf_pipeline_options.do_formula_enrichment = False
     pdf_pipeline_options.do_picture_description = False
@@ -143,6 +139,11 @@ def _build_docling_converter() -> DocumentConverter:
         "codeformulav2",
         # "granite_docling",
         engine_options=TransformersVlmEngineOptions(),
+    )
+
+    pdf_pipeline_options.ocr_options = OcrMacOptions(
+        lang=["en-US", "bn-BD"],
+        force_full_page_ocr=True,
     )
 
     # only if user is in mac
@@ -297,7 +298,7 @@ def docling_pdf_extractor(
                             )
 
                     markdown_image_alt_texts.append(
-                        _build_markdown_image_alt_text(caption, picture_description)
+                        _build_markdown_image_alt_text(picture_description)
                     )
 
                     page_no = element.prov[0].page_no if element.prov else None

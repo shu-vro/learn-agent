@@ -1,0 +1,152 @@
+name: graph-stack
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    container_name: qdrant
+    hostname: qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    networks:
+      - backend
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./qdrant/config/production.yaml:/qdrant/config/production.yaml:ro
+    environment:
+      QDRANT__CONFIG: /qdrant/config/production.yaml
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+      QDRANT__LOG_LEVEL: ${QDRANT_LOG_LEVEL:-INFO}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  neo4j:
+    image: neo4j:2026.03.1-community-trixie
+    container_name: neo4j
+    hostname: neo4j
+    restart: unless-stopped
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    networks:
+      - backend
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./neo4j/conf:/conf
+      - ./neo4j/import:/import
+      - ./neo4j/plugins:/plugins
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH}
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INIT:-1G}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-1G}
+      NEO4J_server_default__listen__address: 0.0.0.0
+      NEO4J_server_bolt_advertised__address: ${NEO4J_ADVERTISED_HOST:-localhost}:7687
+      NEO4J_server_http_advertised__address: ${NEO4J_ADVERTISED_HOST:-localhost}:7474
+      NEO4J_dbms_security_auth__enabled: "true"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      HEALTHCHECK_PASSWORD: ${NEO4J_PASSWORD_FOR_HEALTHCHECK}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'cypher-shell -u neo4j -p "$${NEO4J_PASSWORD_FOR_HEALTHCHECK}" "RETURN 1;" || exit 1',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    ulimits:
+      nofile:
+        soft: 60000
+        hard: 60000
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  postgres:
+    image: postgres:18.3-alpine3.23
+    container_name: postgres
+    hostname: postgres
+    restart: unless-stopped
+
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    networks:
+      - backend
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: ${TZ:-UTC}
+      PGTZ: ${TZ:-UTC}
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" || exit 1',
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+    shm_size: "256mb"
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    security_opt:
+      - no-new-privileges:true
+
+    stop_grace_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+networks:
+  backend:
+    driver: bridge
+    name: graph-backend
+
+volumes:
+  qdrant_data:
+    name: qdrant_data
+  neo4j_data:
+    name: neo4j_data
+  neo4j_logs:
+    name: neo4j_logs
+  postgres_data:
+    name: postgres_data
