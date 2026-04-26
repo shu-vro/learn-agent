@@ -1,8 +1,8 @@
 from langchain.chat_models import init_chat_model
 from src.config.constants import DEFAULT_LLM_MODEL
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
-from src.vector_store.qdrant_store import (
-    embeddings,
+from src.lib.embeddings import (
+    build_embeddings,
 )
 
 
@@ -19,7 +19,7 @@ config = {
     "embedder": {
         "provider": "langchain",
         "config": {
-            "model": embeddings,
+            "model": build_embeddings(),
         },
     },
     "vector_store": {

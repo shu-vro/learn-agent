@@ -1,6 +1,7 @@
 from langchain_core.documents import Document
 from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient, models
+from functools import lru_cache
 from qdrant_client.http.models import (
     Distance,
     FieldCondition,
@@ -25,7 +26,6 @@ DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
 SPARSE_EMBEDDING_MODEL = "Qdrant/bm25"
 sparse_embeddings = FastEmbedSparse(model_name=SPARSE_EMBEDDING_MODEL)
-embeddings = build_embeddings()
 
 
 def _build_qdrant_client() -> QdrantClient:
@@ -40,8 +40,11 @@ def _get_collection_names(qdrant_client: QdrantClient) -> set[str]:
     }
 
 
-def _get_embedding_dimension() -> int:
-    return len(embeddings.embed_query("dimension probe"))
+@lru_cache(maxsize=8)
+def _get_embedding_dimension(model_name=None) -> int:
+    if model_name is None:
+        model_name = DEFAULT_EMBEDDING_MODEL
+    return len(build_embeddings(model_name).embed_query("dimension probe"))
 
 
 def qdrant_collection_exists(
@@ -91,7 +94,7 @@ def build_hybrid_qdrant_store(
     return QdrantVectorStore(
         client=target_client,
         collection_name=collection_name,
-        embedding=embeddings,
+        embedding=build_embeddings(embedding_model_name),
         sparse_embedding=sparse_embeddings,
         retrieval_mode=RetrievalMode.HYBRID,
         vector_name=DENSE_VECTOR_NAME,
