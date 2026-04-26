@@ -11,6 +11,7 @@ from src.config.constants import (
     DEFAULT_QDRANT_COLLECTION,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_VISION_MODEL,
+    ENVIRONMENT,
 )
 from src.utils.time_utils import measure_time
 from src.db import db_engine
@@ -88,6 +89,7 @@ def _run_api_server(*, host: str, port: int, workers: int, log_level: str) -> No
         workers=workers,
         log_level=log_level,
         proxy_headers=True,
+        reload=ENVIRONMENT == "development",
     )
 
 

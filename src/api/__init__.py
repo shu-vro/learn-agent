@@ -7,6 +7,6 @@ def create_api() -> FastAPI:
     # Import and include your API routes here
     from src.api.routes import router as api_router
 
-    app.include_router(api_router, prefix="/api/v1")
+    app.include_router(api_router, prefix="/api")
 
     return app
