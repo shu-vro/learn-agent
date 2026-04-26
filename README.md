@@ -21,7 +21,7 @@ It uses:
 - `src/module/rag_agent.py`: retrieval + strict context-grounded QA/chat agent
 - `src/vector_store/qdrant_store.py`: Qdrant client, collection helpers, hybrid vector store
 - `src/lib/docling_lib.py`: Docling conversion, chunking, and artifact extraction
-- `main.py`: CLI entrypoint (`ingest`, `ask`, `chat`)
+- `main.py`: CLI entrypoint (`ingest`, `ask`, `chat`, `api`)
 
 ## Prerequisites
 
@@ -77,6 +77,18 @@ Optional: force re-ingestion before chat.
 
 ```bash
 uv run main.py chat --rebuild
+```
+
+## Run the API Server (Production Command)
+
+```bash
+uv run main.py api
+```
+
+Optional production tuning:
+
+```bash
+uv run main.py api --host 0.0.0.0 --port 8000 --workers 4 --log-level info
 ```
 
 ## Current Agent Behavior
@@ -137,15 +149,16 @@ uv run main.py --help
 usage: main.py [-h] [--source SOURCES] [--collection-name COLLECTION_NAME] [--artifacts-dir ARTIFACTS_DIR]
                [--embedding-model EMBEDDING_MODEL] [--llm-model LLM_MODEL] [--vision-model VISION_MODEL] [--top-k TOP_K]
                [--no-vision] [--no-image-description] [--no-formula-transcription] [--equation-ocr-lib {local,llm}]
-               {ingest,ask,chat} ...
+               {ingest,ask,chat,api} ...
 
 Multimodal RAG over Attention Is All You Need using Docling + Qdrant + Ollama.
 
 positional arguments:
-  {ingest,ask,chat}
+  {ingest,ask,chat,api}
     ingest              Ingest the paper and write vectors to Qdrant.
     ask                 Ask one question to the RAG agent.
     chat                Run an interactive RAG chat session.
+    api                 Run the fastapi server for RAG API endpoints.
 
 options:
   -h, --help            show this help message and exit

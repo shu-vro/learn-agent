@@ -1,10 +1,9 @@
 import argparse
+import os
 import src.config.bootstrap  # noqa: F401
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.agent.rag_agent import RagAppConfig, answer_question, interactive_chat
-from src.module.upload_docs import ingest_paper_to_qdrant
 from src.config.constants import (
     DEFAULT_LLM_MODEL,
     DEFAULT_OCR_LIB,
@@ -16,22 +15,39 @@ from src.config.constants import (
 from src.utils.time_utils import measure_time
 from src.db import db_engine
 
+if TYPE_CHECKING:
+    from src.agent.rag_agent import RagAppConfig
 
-try:
-    db_engine()
-    print("Successfully connected to the database.")
-except Exception as e:
-    print(f"Warning: Failed to connect to the database. Error: {e}")
+
+def _check_database_connection() -> None:
+    try:
+        db_engine()
+        print("Successfully connected to the database.")
+    except Exception as e:
+        print(f"Warning: Failed to connect to the database. Error: {e}")
+
+
+def _default_worker_count() -> int:
+    return max(1, os.cpu_count() or 1)
+
+
+def _positive_int(value: str) -> int:
+    int_value = int(value)
+    if int_value < 1:
+        raise argparse.ArgumentTypeError("value must be >= 1")
+    return int_value
 
 
 def _ingest_documents(
-    config: RagAppConfig,
+    config: "RagAppConfig",
     *,
     rebuild: bool,
     use_vision_model: bool,
     use_image_descriptions: bool,
     use_formula_transcription: bool,
 ) -> dict[str, Any]:
+    from src.module.upload_docs import ingest_paper_to_qdrant
+
     return ingest_paper_to_qdrant(
         source=config.sources,
         collection_name=config.collection_name,
@@ -59,6 +75,20 @@ def _print_ingestion_summary(ingest_info: dict[str, Any]) -> None:
         print(f"- {paper_hash}")
     print(f"Qdrant collection: {ingest_info['collection_name']}")
     print(f"Artifacts dir: {ingest_info['artifacts_root']}")
+
+
+def _run_api_server(*, host: str, port: int, workers: int, log_level: str) -> None:
+    import uvicorn
+
+    uvicorn.run(
+        "src.api:create_api",
+        factory=True,
+        host=host,
+        port=port,
+        workers=workers,
+        log_level=log_level,
+        proxy_headers=True,
+    )
 
 
 @measure_time
@@ -159,6 +189,33 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Rebuild the index before starting chat.",
     )
 
+    api_parser = subparsers.add_parser(
+        "api", help="Run the fastapi server for RAG API endpoints."
+    )
+    api_parser.add_argument(
+        "--host",
+        default=os.environ.get("API_HOST", "0.0.0.0"),
+        help="API bind host (default: API_HOST or 0.0.0.0).",
+    )
+    api_parser.add_argument(
+        "--port",
+        type=_positive_int,
+        default=int(os.environ.get("API_PORT", "8000")),
+        help="API bind port (default: API_PORT or 8000).",
+    )
+    api_parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=_default_worker_count(),
+        help="Number of Uvicorn worker processes.",
+    )
+    api_parser.add_argument(
+        "--log-level",
+        choices=("critical", "error", "warning", "info", "debug", "trace"),
+        default="info",
+        help="Uvicorn log level.",
+    )
+
     for command_parser in (ingest_parser, ask_parser, chat_parser):
         command_parser.add_argument(
             "--no-vision",
@@ -193,6 +250,18 @@ def main() -> None:
     try:
         parser = _build_cli_parser()
         args = parser.parse_args()
+
+        if args.command == "api":
+            _check_database_connection()
+            _run_api_server(
+                host=args.host,
+                port=args.port,
+                workers=args.workers,
+                log_level=args.log_level,
+            )
+            return
+
+        from src.agent.rag_agent import RagAppConfig, answer_question, interactive_chat
 
         use_vision_model = not args.no_vision
         use_image_descriptions = use_vision_model and not args.no_image_description

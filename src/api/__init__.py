@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 
-def create_app() -> FastAPI:
+def create_api() -> FastAPI:
     app = FastAPI(title="RAG Agent API", version="1.0")
 
     # Import and include your API routes here
