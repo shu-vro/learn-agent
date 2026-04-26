@@ -27,7 +27,7 @@ def configure_logging(log_level: str, environment: str = "development") -> None:
 
     logger.add(
         "logs/app_{time:YYYY-MM-DD_HH-mm-ss}.log",
-        format="[{level}] <{time:YYYY-MM-DD HH:mm:ss.SSS Z}> {name}:{function}:{line} - {message}",
+        format="<{time:YYYY-MM-DD HH:mm:ss.SSS Z}> [{level}] {name}:{function}:{line} - {message}",
         level=log_level,
         rotation="500 MB",
         retention="1 month",

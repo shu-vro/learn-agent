@@ -90,7 +90,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${DATABASE_PORT:-5433}:5432"
 
     networks:
       - backend
@@ -100,9 +100,9 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
 
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       PGDATA: /var/lib/postgresql/data/pgdata
       TZ: ${TZ:-UTC}
       PGTZ: ${TZ:-UTC}
@@ -111,7 +111,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" || exit 1',
+          'pg_isready -U "$${DATABASE_USER}" -d "$${DATABASE_NAME}" || exit 1',
         ]
       interval: 20s
       timeout: 5s

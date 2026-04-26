@@ -4,15 +4,16 @@ from mem0 import Memory
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from langchain_openai import ChatOpenAI
-from src.utils.usage_aggregator_callback import UsageAggregatorCallback
-from src.lib.embeddings import build_embeddings
-import src.config.bootstrap  # noqa: F401
 
 # Ensure top-level `src` imports resolve when this file is executed as a script.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+
+from src.utils.usage_aggregator_callback import UsageAggregatorCallback
+from src.lib.embeddings import build_embeddings
+import src.config.bootstrap  # noqa: F401
 
 global_usage_aggregator = UsageAggregatorCallback("mem0_task")
 
