@@ -13,7 +13,7 @@ def configure_logging(log_level: str, environment: str = "development") -> None:
         show_time=False,
         show_level=False,
         show_path=False,
-        markup=False,
+        markup=True,
     )
 
     logger.add(

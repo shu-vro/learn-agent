@@ -14,6 +14,14 @@ from src.config.constants import (
     DEFAULT_VISION_MODEL,
 )
 from src.utils.time_utils import measure_time
+from src.db import db_engine
+
+
+try:
+    db_engine()
+    print("Successfully connected to the database.")
+except Exception as e:
+    print(f"Warning: Failed to connect to the database. Error: {e}")
 
 
 def _ingest_documents(

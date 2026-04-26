@@ -11,10 +11,12 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain.agents.middleware import SummarizationMiddleware
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.memory import BaseCheckpointSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
+from src.db import CONN_URL
 
 from src.config.constants import (
     DEFAULT_ARTIFACTS_DIR,
@@ -91,7 +93,7 @@ def answer_question(
     question: str,
     config: RagAppConfig,
     mode: Literal["ask", "chat"] = "ask",
-    checkpointer: InMemorySaver | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
     messages: list[HumanMessage | AIMessage] | None = None,
     usage_aggregator: UsageAggregatorCallback | None = UsageAggregatorCallback(
         "rag_agent_calls"
@@ -108,6 +110,7 @@ def answer_question(
     Returns:
     """
 
+    checkpointer = checkpointer if mode == "chat" else None
     prompt = main_agent_system_prompt
     system_prompt = SystemMessage(content=prompt)
 
@@ -230,31 +233,30 @@ def answer_question(
 
 
 def interactive_chat(config: RagAppConfig) -> None:
-    checkpointer = InMemorySaver()
-    messages: list[BaseMessage] = []
-    global_usage_aggregator = UsageAggregatorCallback("rag_agent_calls")
+    with PostgresSaver.from_conn_string(CONN_URL) as checkpointer:
+        messages: list[BaseMessage] = []
+        global_usage_aggregator = UsageAggregatorCallback("rag_agent_calls")
 
-    while True:
-        question = input("\n> ").strip()
-        if not question:
-            continue
-        if question.lower() in {"exit", "quit"}:
-            break
+        while True:
+            question = input("\n> ").strip()
+            if not question:
+                continue
+            if question.lower() in {"exit", "quit"}:
+                break
 
-        answer_question(
-            question,
-            config=config,
-            messages=messages,
-            mode="chat",
-            checkpointer=checkpointer,
-            usage_aggregator=global_usage_aggregator,
+            answer_question(
+                question,
+                config=config,
+                messages=messages,
+                mode="chat",
+                checkpointer=checkpointer,
+                usage_aggregator=global_usage_aggregator,
+            )
+
+        print(
+            "\nAggregated Usage Metadata:",
+            global_usage_aggregator.get_aggregated_usage(),
         )
 
-    print(
-        "\nAggregated Usage Metadata:",
-        global_usage_aggregator.get_aggregated_usage(),
-    )
-
-    for msg in messages:
-        msg.pretty_print()
-    pass
+        for msg in messages:
+            msg.pretty_print()
