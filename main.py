@@ -14,7 +14,7 @@ from src.config.constants import (
     ENVIRONMENT,
 )
 from src.utils.time_utils import measure_time
-from src.db import db_engine
+from src.db import create_all_tables
 
 if TYPE_CHECKING:
     from src.agent.rag_agent import RagAppConfig
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 def _check_database_connection() -> None:
     try:
-        db_engine()
+        create_all_tables()
         print("Successfully connected to the database.")
     except Exception as e:
         print(f"Warning: Failed to connect to the database. Error: {e}")
