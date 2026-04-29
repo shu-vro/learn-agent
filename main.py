@@ -317,6 +317,10 @@ def main() -> None:
             return
     except KeyboardInterrupt:
         print("\nInterrupted by user. Exiting.")
+        # if ENVIRONMENT == "development":
+        #     import subprocess
+
+        #     subprocess.run("killall -9 ollama", shell=True)
 
 
 if __name__ == "__main__":

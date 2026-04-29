@@ -10,6 +10,7 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG").upper()
 DEFAULT_PAPER_SOURCES = [
     "https://arxiv.org/pdf/1706.03762",
     "https://arxiv.org/pdf/2603.15031",
+    "https://arxiv.org/pdf/2512.24695",
 ]
 DEFAULT_ARTIFACTS_DIR = Path("data/artifacts")
 DEFAULT_DOWNLOADS_DIR = Path("data/downloads")
