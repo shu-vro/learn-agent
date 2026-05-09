@@ -13,3 +13,10 @@ DATABASE_NAME = os.environ.get("DATABASE_NAME", "postgres")
 DATABASE_USER = os.environ.get("DATABASE_USER", "pguser")
 DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD", "")
 DATABASE_HOST = os.environ.get("DATABASE_HOST", "localhost")
+
+# JWT
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60")
+)

@@ -8,7 +8,6 @@ from langchain_core.messages import (
     AIMessage,
     SystemMessage,
     BaseMessage,
-    ToolMessage,
 )
 from langchain.agents.middleware import SummarizationMiddleware
 from langgraph.checkpoint.memory import BaseCheckpointSaver
@@ -30,6 +29,7 @@ from src.config.constants import (
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.utils.time_utils import measure_time
 from src.agent.tools.document_retriever import retrieve_context
+from agent.tools.builtin_tools import duckduckgo_search, youtube_search
 from src.agent.prompts import main_agent_system_prompt
 
 
@@ -133,7 +133,7 @@ def answer_question(
         callbacks=[summarization_aggregator] if summarization_aggregator else None,
     )
 
-    tools = [retrieve_context]
+    tools = [retrieve_context, duckduckgo_search, youtube_search]
 
     agent = create_agent(
         llm,
@@ -157,6 +157,8 @@ def answer_question(
 
     # answer_text = response.content if hasattr(response, "content") else str(response)
 
+    internal_messages = []
+
     answer_text = ""
     pending_tool_calls: dict[str, dict[str, Any]] = {}
     for chunk in agent.stream(
@@ -165,7 +167,6 @@ def answer_question(
         stream_mode=["messages", "updates"],
         version="v2",
     ):
-        # print(chunk)
         if chunk["type"] == "messages":
             token, metadata = chunk["data"]
             if metadata["langgraph_node"] and metadata["langgraph_node"] == "model":
@@ -175,7 +176,6 @@ def answer_question(
             token = chunk["data"]
             if token.get("SummarizationMiddleware.before_model"):
                 print("\n---------Summarizing Past Messages---------\n")
-                continue
 
             model_message = (token.get("model") or {}).get("messages", [None])[-1]
             if isinstance(model_message, AIMessage):
@@ -192,25 +192,10 @@ def answer_question(
                 if model_text:
                     answer_text += model_text
 
-            tool_message = (token.get("tools") or {}).get("messages", [None])[-1]
-            if isinstance(tool_message, ToolMessage):
-                tool_meta = pending_tool_calls.get(tool_message.tool_call_id, {})
-                tool_name = tool_meta.get(
-                    "name", getattr(tool_message, "name", "unknown")
-                )
-                tool_args = tool_meta.get("args", {})
-                # tool_response = _content_to_text(tool_message.content)
-                artifact = (
-                    tool_message["artifact"] if "artifact" in tool_message else None
-                )
+    print(internal_messages)
+    # print("\n\nSources:")
 
-                print("\n---------tool fired---------")
-                print(f"-name: {tool_name}")
-                print(f"-args (as you got): {tool_args}")
-                _source_summary_lines(artifact) if artifact else None
-
-    print("\n\nSources:")
-
+    # show the cost
     if mode == "ask":
         print(
             "\nAggregated Usage Metadata:",

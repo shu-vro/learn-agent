@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import os
 import src.config.bootstrap  # noqa: F401
 from pathlib import Path
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
 def _check_database_connection() -> None:
     try:
-        create_all_tables()
+        asyncio.run(create_all_tables())
         print("Successfully connected to the database.")
     except Exception as e:
         print(f"Warning: Failed to connect to the database. Error: {e}")

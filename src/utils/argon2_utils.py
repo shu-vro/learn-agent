@@ -12,3 +12,6 @@ def verify_password(stored_hash: str, provided_password: str) -> bool:
         return ph.verify(stored_hash, provided_password)
     except Exception:
         return False
+
+
+__all__ = ["hash_password", "verify_password"]

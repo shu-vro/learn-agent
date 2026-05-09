@@ -1,0 +1,102 @@
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import jwt
+from fastapi import Depends, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db import get_session
+from src.db.models.user import User
+
+from src.config.env import (
+    JWT_SECRET_KEY,
+    JWT_ALGORITHM,
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+
+JWT_COOKIE_NAME = "access_token"
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    payload = data.copy()
+
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+
+    payload.update({"exp": expire})
+
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=JWT_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=False,  # True in production with HTTPS
+        samesite="lax",
+        max_age=JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=JWT_COOKIE_NAME,
+        path="/",
+    )
+
+
+def get_token_from_cookie(request: Request) -> str:
+    token = request.cookies.get(JWT_COOKIE_NAME)
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    return token
+
+
+def decode_access_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+
+async def get_current_user(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """FastAPI dependency that resolves the auth cookie to a User row."""
+    token = get_token_from_cookie(request)
+    payload = decode_access_token(token)
+
+    email = payload.get("email")
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    user = await User.get_by_email(session, email)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    return user

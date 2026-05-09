@@ -1,8 +1,14 @@
-import uuid
+from __future__ import annotations
 
-from sqlalchemy import Column, String
+import uuid
+from typing import Optional
+
+from sqlalchemy import Column, String, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
+
 from src.db.models.base import Base
+from src.utils.argon2_utils import hash_password
 
 
 class User(Base):
@@ -16,3 +22,24 @@ class User(Base):
     projects = relationship("Project", back_populates="user")
     threads = relationship("Thread", back_populates="user")
     chats = relationship("Chat", back_populates="user")
+
+    @classmethod
+    async def get_by_email(cls, session: AsyncSession, email: str) -> Optional["User"]:
+        stmt = select(cls).where(cls.email == email)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def create(
+        cls,
+        session: AsyncSession,
+        *,
+        name: str,
+        email: str,
+        password: str,
+    ) -> "User":
+        user = cls(name=name, email=email, password=hash_password(password))
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user

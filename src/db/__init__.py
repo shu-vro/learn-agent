@@ -1,24 +1,33 @@
 from __future__ import annotations
+
 from functools import lru_cache
-from typing import Sequence
-from sqlalchemy import create_engine
+from typing import AsyncIterator, Sequence
+from urllib.parse import quote_plus
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
+
 from src.config.env import (
-    DATABASE_PORT,
-    DATABASE_NAME,
-    DATABASE_USER,
-    DATABASE_PASSWORD,
     DATABASE_HOST,
+    DATABASE_NAME,
+    DATABASE_PASSWORD,
+    DATABASE_PORT,
+    DATABASE_USER,
 )
 from src.db.models import (
     Base,
-    User,
-    Project,
-    Thread,
     Chat,
     Chunk,
     Document,
+    Project,
     ProjectDocument,
+    Thread,
+    User,
 )
 
 __all__ = [
@@ -30,25 +39,61 @@ __all__ = [
     "Chunk",
     "Document",
     "ProjectDocument",
-    "db_engine",
+    "engine",
+    "session_factory",
+    "get_session",
     "create_all_tables",
+    "CONN_URL",
+    "ASYNC_CONN_URL",
 ]
 
-CONN_URL = f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+# Sync URL is still consumed by langgraph PostgresSaver (psycopg2-based),
+# so we keep it alongside the async URL used by SQLAlchemy / FastAPI.
+_USER = quote_plus(DATABASE_USER)
+_PASSWORD = quote_plus(DATABASE_PASSWORD)
+_NETLOC = f"{_USER}:{_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
 
-AllTables = User, Project, Thread, Chat, Chunk, Document, ProjectDocument
+CONN_URL = f"postgresql://{_NETLOC}"
+ASYNC_CONN_URL = f"postgresql+asyncpg://{_NETLOC}"
+
+AllTables = (User, Project, Thread, Chat, Chunk, Document, ProjectDocument)
 
 
 @lru_cache(maxsize=1)
-def db_engine():
-    engine = create_engine(
-        CONN_URL,
+def engine() -> AsyncEngine:
+    # pool_pre_ping avoids stale connections after Postgres restarts; the
+    # asyncpg driver is fully non-blocking so multiple FastAPI requests share
+    # the pool without serializing on the event loop.
+    return create_async_engine(
+        ASYNC_CONN_URL,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
     )
-    engine.connect()
-    return engine
 
 
-def create_all_tables(tables: Sequence[type[DeclarativeBase]] = AllTables) -> None:
-    engine = db_engine()
-    for table in tables:
-        table.__table__.create(engine, checkfirst=True)
+@lru_cache(maxsize=1)
+def session_factory() -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(
+        bind=engine(),
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency yielding a request-scoped AsyncSession."""
+    async with session_factory()() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def create_all_tables(
+    tables: Sequence[type[DeclarativeBase]] = AllTables,
+) -> None:
+    async with engine().begin() as conn:
+        for table in tables:
+            await conn.run_sync(table.__table__.create, checkfirst=True)
