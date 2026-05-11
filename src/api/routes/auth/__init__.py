@@ -104,3 +104,6 @@ async def logout(response: Response) -> EmptyResponse:
 @router.get("/profile", response_model=UserResponse)
 async def profile(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.ok(data=UserPublic.from_model(current_user))
+
+
+__all__ = ["router"]

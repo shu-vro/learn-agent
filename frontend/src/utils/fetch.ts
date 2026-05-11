@@ -1,0 +1,178 @@
+import axios from "axios";
+
+type RequestOptions = {
+  endpoint: string;
+  params?: unknown;
+  token?: string;
+  full?: boolean;
+  throwable?: boolean;
+  version?: string;
+  baseUrl?: string;
+  overrideEncryptedResponsesOnly?: boolean;
+};
+
+function isSuccessPayload(data: unknown): boolean {
+  if (data === null || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  if (d.status === "success") return true;
+  if (d.success === true) return true;
+  return false;
+}
+
+function extractData<T = unknown>(data: unknown): T | null {
+  if (data === null || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if ("data" in d) return d.data as T;
+  return null;
+}
+
+const request = async (
+  method: "get" | "put" | "post" | "delete" = "get",
+  {
+    endpoint = "",
+    params = {},
+    token = "",
+    full = false,
+    throwable = false,
+    version = "v1",
+    baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "",
+    overrideEncryptedResponsesOnly: _unusedOverride = false,
+  }: RequestOptions,
+) => {
+  const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const root = baseUrl.replace(/\/+$/, "");
+  const url = `${root}/api/${version}${path}`;
+  let response = null;
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    response = await axios({
+      method,
+      headers,
+      url,
+      data: method !== "get" ? params : undefined,
+      params: method === "get" ? params : undefined,
+      withCredentials: true,
+    });
+
+    const body = response.data;
+
+    if (isSuccessPayload(body)) {
+      const payload = extractData(body);
+      if (full) return response;
+      return payload;
+    }
+
+    if (throwable) {
+      throw new Error(
+        (body as { message?: string })?.message || "API request failed",
+      );
+    }
+    return null;
+  } catch (error: unknown) {
+    const err = error as {
+      message?: string;
+      response?: { data?: unknown; headers?: Record<string, string> };
+    };
+    if (throwable) {
+      throw error;
+    }
+    if (process.env.NODE_ENV === "development") {
+      console.error("Error fetching data:", err.message, error);
+    }
+    return err?.response?.data ?? null;
+  }
+};
+
+export const get = async ({
+  endpoint = "",
+  params = {},
+  token = "",
+  full = false,
+  throwable = false,
+  version = "v1",
+  baseUrl,
+  overrideEncryptedResponsesOnly = false,
+}: Partial<RequestOptions>) => {
+  return await request("get", {
+    endpoint,
+    params,
+    token,
+    full,
+    throwable,
+    version,
+    baseUrl,
+    overrideEncryptedResponsesOnly,
+  });
+};
+
+export const post = async ({
+  endpoint = "",
+  params = {},
+  token = "",
+  full = false,
+  throwable = false,
+  version = "v1",
+  baseUrl,
+  overrideEncryptedResponsesOnly = false,
+}: Partial<RequestOptions>) => {
+  return await request("post", {
+    endpoint,
+    params,
+    token,
+    full,
+    throwable,
+    version,
+    baseUrl,
+    overrideEncryptedResponsesOnly,
+  });
+};
+
+export const put = async ({
+  endpoint = "",
+  params = {},
+  token = "",
+  full = false,
+  throwable = false,
+  version = "v1",
+  baseUrl,
+  overrideEncryptedResponsesOnly = false,
+}: Partial<RequestOptions>) => {
+  return await request("put", {
+    endpoint,
+    params,
+    token,
+    full,
+    throwable,
+    version,
+    baseUrl,
+    overrideEncryptedResponsesOnly,
+  });
+};
+
+export const del = async ({
+  endpoint = "",
+  params = {},
+  token = "",
+  full = false,
+  throwable = false,
+  version = "v1",
+  baseUrl,
+  overrideEncryptedResponsesOnly = false,
+}: Partial<RequestOptions>) => {
+  return await request("delete", {
+    endpoint,
+    params,
+    token,
+    full,
+    throwable,
+    version,
+    baseUrl,
+    overrideEncryptedResponsesOnly,
+  });
+};

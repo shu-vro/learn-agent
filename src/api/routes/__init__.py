@@ -29,3 +29,5 @@ async def health_check() -> HealthCheckResponse:
 
 router.include_router(auth_router, prefix="/v1")
 router.include_router(chat_router, prefix="/v1")
+
+__all__ = ["router"]

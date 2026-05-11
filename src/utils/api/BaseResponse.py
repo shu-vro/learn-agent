@@ -35,3 +35,6 @@ class BaseResponse(BaseModel, Generic[T]):
         data: Optional[T] = None,
     ) -> "BaseResponse[T]":
         return cls(status="error", data=data, status_code=status_code)
+
+
+__all__ = ["BaseResponse"]
