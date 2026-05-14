@@ -9,7 +9,8 @@ function isProject(value: unknown): value is Project {
     typeof value === "object" &&
     value !== null &&
     "id" in value &&
-    "title" in value &&
+    "name" in value &&
+    "description" in value &&
     typeof (value as Project).id === "string"
   );
 }
@@ -20,6 +21,7 @@ function isProjectList(value: unknown): value is Project[] {
 
 export async function listProjects(): Promise<Project[]> {
   const res = await get({ endpoint: "/projects" });
+  console.log(res);
   if (isProjectList(res)) {
     return res;
   }
@@ -27,11 +29,12 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function createProjectRemote(
-  partial?: Pick<Project, "title" | "description">,
+  partial?: Pick<Project, "name" | "description" | "extra">,
 ): Promise<Project> {
   const payload = {
-    title: partial?.title ?? "",
+    name: partial?.name ?? "",
     description: partial?.description ?? "",
+    extra: partial?.extra ?? {},
   };
   const res = await post({ endpoint: "/projects", params: payload });
   if (isProject(res)) {
@@ -39,8 +42,9 @@ export async function createProjectRemote(
   }
   return {
     id: nanoid(),
-    title: payload.title,
+    name: payload.name,
     description: payload.description || "No description yet.",
+    extra: payload.extra || {},
   };
 }
 
@@ -54,7 +58,7 @@ export async function deleteProjectRemote(id: string): Promise<boolean> {
 
 export async function updateProjectRemote(
   id: string,
-  patch: Pick<Project, "title" | "description">,
+  patch: Pick<Project, "name" | "description" | "extra">,
 ): Promise<Project | null> {
   const res = await put({
     endpoint: `/projects/${id}`,

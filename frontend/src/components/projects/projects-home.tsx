@@ -75,7 +75,7 @@ export function ProjectsHome() {
   const handleDelete = useCallback(
     async (p: Project) => {
       closeMenu();
-      if (!window.confirm(`Delete “${p.title}”?`)) {
+      if (!window.confirm(`Delete “${p.name}”?`)) {
         return;
       }
       await deleteProjectRemote(p.id);
@@ -88,7 +88,7 @@ export function ProjectsHome() {
     (p: Project) => {
       closeMenu();
       setEditProject(p);
-      setEditTitle(p.title);
+      setEditTitle(p.name);
       setEditDescription(p.description);
       setEditOpen(true);
     },
@@ -100,8 +100,9 @@ export function ProjectsHome() {
       return;
     }
     const updated = await updateProjectRemote(editProject.id, {
-      title: editTitle.trim() || editProject.title,
+      name: editTitle.trim() || editProject.name,
       description: editDescription,
+      extra: editProject.extra,
     });
     if (updated) {
       setProjects((prev) =>

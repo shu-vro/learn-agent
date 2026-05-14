@@ -41,7 +41,7 @@ export function ProjectCard({
           </div>
           <div className="min-w-0 space-y-1">
             <CardTitle className="text-base leading-snug">
-              {project.title}
+              {project.name || "Untitled project"}
             </CardTitle>
             <CardDescription className="line-clamp-3">
               {project.description || "No description"}

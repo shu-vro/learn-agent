@@ -1,7 +1,8 @@
 export type ProjectSeed = {
   id: string;
-  title: string;
+  name: string;
   description: string;
+  extra: Record<string, any>;
 };
 
 export type ThreadSeed = { id: string; title: string };
@@ -21,13 +22,15 @@ export type ArtifactSeed = {
 export const SEED_PROJECTS: ProjectSeed[] = [
   {
     id: "p-demo-1",
-    title: "Research notes",
+    name: "Research notes",
     description: "Summaries and drafts for the Q1 literature review.",
+    extra: {},
   },
   {
     id: "p-demo-2",
-    title: "Side project",
+    name: "Side project",
     description: "Ideas and todos for the weekend build.",
+    extra: {},
   },
 ];
 
