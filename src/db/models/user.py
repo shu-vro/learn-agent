@@ -43,3 +43,6 @@ class User(Base):
         await session.commit()
         await session.refresh(user)
         return user
+
+    def __repr__(self):
+        print(dict(self.__dict__))

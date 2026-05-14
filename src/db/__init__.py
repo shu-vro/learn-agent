@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
-from typing import AsyncIterator, Sequence
+from pathlib import Path
+from typing import AsyncIterator
 from urllib.parse import quote_plus
 
 from sqlalchemy.ext.asyncio import (
@@ -10,8 +12,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
-
 from src.config.env import (
     DATABASE_HOST,
     DATABASE_NAME,
@@ -56,7 +56,18 @@ _NETLOC = f"{_USER}:{_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
 CONN_URL = f"postgresql://{_NETLOC}"
 ASYNC_CONN_URL = f"postgresql+asyncpg://{_NETLOC}"
 
-AllTables = (User, Project, Thread, Chat, Chunk, Document, ProjectDocument)
+
+def _alembic_ini_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "alembic.ini"
+
+
+def upgrade_schema_to_head() -> None:
+    """Apply all pending Alembic migrations (sync; safe to call via asyncio.to_thread)."""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(_alembic_ini_path()))
+    command.upgrade(cfg, "head")
 
 
 @lru_cache(maxsize=1)
@@ -91,9 +102,11 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             raise
 
 
-async def create_all_tables(
-    tables: Sequence[type[DeclarativeBase]] = AllTables,
-) -> None:
-    async with engine().begin() as conn:
-        for table in tables:
-            await conn.run_sync(table.__table__.create, checkfirst=True)
+async def create_all_tables() -> None:
+    """Bring the database schema to the latest revision (creates and alters tables).
+
+    Model changes are delivered through Alembic revisions under ``alembic/versions/``.
+    After editing models, run ``uv run alembic revision --autogenerate -m \"...\"``,
+    review the script, then commit; this function runs ``alembic upgrade head``.
+    """
+    await asyncio.to_thread(upgrade_schema_to_head)

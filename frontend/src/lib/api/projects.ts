@@ -30,7 +30,7 @@ export async function createProjectRemote(
   partial?: Pick<Project, "title" | "description">,
 ): Promise<Project> {
   const payload = {
-    title: partial?.title ?? "Untitled project",
+    title: partial?.title ?? "",
     description: partial?.description ?? "",
   };
   const res = await post({ endpoint: "/projects", params: payload });

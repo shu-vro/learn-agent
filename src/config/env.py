@@ -20,3 +20,8 @@ JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60")
 )
+
+# CORS
+CORS_ALLOW_ORIGINS = os.environ.get(
+    "CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")

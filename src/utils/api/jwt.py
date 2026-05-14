@@ -100,3 +100,27 @@ async def get_current_user(
         )
 
     return user
+
+
+async def try_get_current_user(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> Optional[User]:
+    """Resolve the auth cookie to a User, or None — never raises."""
+    try:
+        request.state.user = await get_current_user(request, session)
+        return request.state.user
+    except Exception:
+        request.state.user = None
+        return None
+
+
+__all__ = [
+    "create_access_token",
+    "set_auth_cookie",
+    "clear_auth_cookie",
+    "get_token_from_cookie",
+    "decode_access_token",
+    "get_current_user",
+    "try_get_current_user",
+]
