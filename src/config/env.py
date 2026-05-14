@@ -1,7 +1,15 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Stored uploads for project-bound documents (PDF / markdown).
+_default_upload_root = Path(__file__).resolve().parents[2] / "var" / "uploads"
+ASSET_UPLOAD_ROOT = Path(
+    os.environ.get("ASSET_UPLOAD_ROOT", str(_default_upload_root))
+).resolve()
 
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))

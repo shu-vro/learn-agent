@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Column, String, JSON, ForeignKey
+from sqlalchemy import Column, ForeignKey, JSON, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
+from typing import List, Optional
+
 from src.db.models.base import Base
-from typing import List
-from sqlalchemy import select
 
 
 class Project(Base):
@@ -30,6 +30,14 @@ class Project(Base):
         stmt = select(cls).where(cls.user_id == user_id)
         result = await session.execute(stmt)
         return result.scalars().all()
+
+    @classmethod
+    async def get_by_id_for_user(
+        cls, session: AsyncSession, project_id: str, user_id: str
+    ) -> Optional["Project"]:
+        stmt = select(cls).where(cls.id == project_id, cls.user_id == user_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     @classmethod
     async def create(

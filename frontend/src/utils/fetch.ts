@@ -44,18 +44,20 @@ const request = async (
   const url = `${root}/api/${version}${path}`;
   let response = null;
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
+    const headers: Record<string, string> = {};
     if (token) {
       headers.Authorization = `Bearer ${token}`;
+    }
+    const requestPayload = method !== "get" ? params : undefined;
+    if (!(requestPayload instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
     }
 
     response = await axios({
       method,
       headers,
       url,
-      data: method !== "get" ? params : undefined,
+      data: requestPayload,
       params: method === "get" ? params : undefined,
       withCredentials: true,
     });

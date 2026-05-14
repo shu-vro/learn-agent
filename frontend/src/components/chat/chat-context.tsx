@@ -18,6 +18,7 @@ import {
   listMessages,
   listThreads,
   type Thread,
+  uploadArtifact,
 } from "@/lib/api/chat";
 
 type ChatWorkspaceValue = {
@@ -50,8 +51,10 @@ const assistantPlaceholder =
 
 export function ChatWorkspaceProvider({
   children,
+  projectId = null,
 }: {
   children: React.ReactNode;
+  projectId?: string | null;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState("");
@@ -66,7 +69,10 @@ export function ChatWorkspaceProvider({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [t, a] = await Promise.all([listThreads(), listArtifacts()]);
+      const [t, a] = await Promise.all([
+        listThreads(projectId),
+        listArtifacts(projectId),
+      ]);
       if (cancelled) {
         return;
       }
@@ -87,7 +93,7 @@ export function ChatWorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
   const messages = messagesByThread[activeThreadId] ?? [];
 
@@ -127,17 +133,28 @@ export function ChatWorkspaceProvider({
     setActiveThreadId(id);
   }, []);
 
-  const addArtifactFromFile = useCallback(async (file: File) => {
-    let content = "";
-    try {
-      content = await file.text();
-    } catch {
-      content = `_Could not read file as text: ${file.name}_`;
-    }
-    const art = createLocalArtifact(file.name, content || "_Empty file_");
-    setArtifacts((prev) => [...prev, art]);
-    setSelectedArtifactId(art.id);
-  }, []);
+  const addArtifactFromFile = useCallback(
+    async (file: File) => {
+      if (projectId) {
+        const created = await uploadArtifact(projectId, file);
+        if (created) {
+          setArtifacts((prev) => [...prev, created]);
+          setSelectedArtifactId(created.id);
+        }
+        return;
+      }
+      let content = "";
+      try {
+        content = await file.text();
+      } catch {
+        content = `_Could not read file as text: ${file.name}_`;
+      }
+      const art = createLocalArtifact(file.name, content || "_Empty file_");
+      setArtifacts((prev) => [...prev, art]);
+      setSelectedArtifactId(art.id);
+    },
+    [projectId],
+  );
 
   const value = useMemo<ChatWorkspaceValue>(
     () => ({
