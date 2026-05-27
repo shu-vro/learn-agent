@@ -12,6 +12,7 @@ that already match models.
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+from alembic import context
 from alembic import op
 from sqlalchemy import inspect
 
@@ -22,9 +23,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    insp = inspect(bind)
-    have = set(insp.get_table_names())
+    offline = context.is_offline_mode()
+
+    have: set[str] = set()
+    if not offline:
+        bind = op.get_bind()
+        insp = inspect(bind)
+        have = set(insp.get_table_names())
 
     if "chunks" not in have:
         op.create_table(
@@ -78,7 +83,7 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
         )
         have.add("projects")
-    else:
+    elif not offline:
         proj_cols = {c["name"] for c in insp.get_columns("projects")}
         if "description" not in proj_cols:
             op.add_column(
@@ -148,9 +153,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    insp = inspect(bind)
-    tables = set(insp.get_table_names())
+    offline = context.is_offline_mode()
+
+    tables: set[str]
+    if offline:
+        # In offline (--sql) mode there is no live DB connection to inspect.
+        tables = {
+            "chats_chunks",
+            "chats",
+            "threads",
+            "projects_documents",
+            "projects",
+            "documents_chunks",
+            "users",
+            "documents",
+            "chunks",
+        }
+    else:
+        bind = op.get_bind()
+        insp = inspect(bind)
+        tables = set(insp.get_table_names())
     for name in (
         "chats_chunks",
         "chats",

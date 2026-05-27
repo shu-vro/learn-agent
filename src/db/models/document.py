@@ -10,8 +10,12 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    source = Column(String, nullable=False)
-    url = Column(String, nullable=False)
+    source = Column(String, nullable=False)  # url or "uploaded"
+    url = Column(
+        String, nullable=False
+    )  # file path in upload directory after processed.
+    original_url = Column(String, nullable=True)  # original document url.
+    name = Column(String, nullable=False)  # original file name
 
     chunks = relationship(
         "Chunk",

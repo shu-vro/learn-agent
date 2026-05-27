@@ -17,7 +17,7 @@ from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from src.utils.api.BaseResponse import BaseResponse
 
-ALLOWED_SUFFIXES = frozenset({".pdf", ".md", ".markdown"})
+ALLOWED_SUFFIXES = frozenset({".pdf"})
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 router = APIRouter(prefix="/projects", tags=["artifacts"])
