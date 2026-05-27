@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, ForeignKey, Table
+from sqlalchemy import Column, String, ForeignKey, Table, JSON
 from sqlalchemy.orm import relationship
 from src.db.models.base import Base
 
@@ -18,6 +18,8 @@ class Chunk(Base):
     __tablename__ = "chunks"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    content = Column(String, nullable=False)
+    extra = Column(JSON, nullable=False)
 
     chats = relationship("Chat", secondary="chats_chunks", back_populates="chunks")
     documents = relationship(
