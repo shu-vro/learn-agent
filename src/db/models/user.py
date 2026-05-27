@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import Column, String, select, DateTime
+from sqlalchemy import Column, DateTime, String, select
+from sqlalchemy.sql import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
 
@@ -20,6 +21,15 @@ class User(Base):
     password = Column(String, nullable=False)
     temp_password = Column(String, nullable=True)
     temp_password_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     projects = relationship("Project", back_populates="user")
     threads = relationship("Thread", back_populates="user")

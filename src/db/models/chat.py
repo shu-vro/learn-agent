@@ -2,13 +2,15 @@ import uuid
 
 from sqlalchemy import (
     Column,
-    String,
-    JSON,
+    DateTime,
     ForeignKey,
     Integer,
+    JSON,
+    String,
     Table,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from src.db.models.base import Base
 
 chats_chunks = Table(
@@ -33,6 +35,15 @@ class Chat(Base):
     total_token = Column(Integer, default=0)
     group_id = Column(String)
     extra = Column(JSON)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     thread = relationship("Thread", back_populates="chats")
     user = relationship("User", back_populates="chats")

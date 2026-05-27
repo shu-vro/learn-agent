@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Column, ForeignKey, JSON, String, select
+from sqlalchemy import Column, DateTime, ForeignKey, JSON, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from typing import List, Optional
 
 from src.db.models.base import Base
@@ -18,6 +19,15 @@ class Project(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=False)
     extra = Column(JSON)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     user = relationship("User", back_populates="projects")
     threads = relationship("Thread", back_populates="project")
