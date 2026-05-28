@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from src.db.models.base import Base
@@ -17,6 +17,13 @@ class Document(Base):
     )  # file path in upload directory after processed.
     original_url = Column(String, nullable=True)  # original document url.
     name = Column(String, nullable=False)  # original file name
+    sha256 = Column(
+        String, nullable=True, unique=True
+    )  # binary fingerprint of uploaded file
+    mime_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=False, default=0)
+    ingestion_status = Column(String, nullable=False, default="processing")
+    ingestion_error = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

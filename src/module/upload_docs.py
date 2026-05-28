@@ -35,6 +35,26 @@ def _tag_documents_with_paper_hash(
         doc.metadata = metadata
 
 
+def _tag_uploaded_documents(
+    documents: list[Document],
+    *,
+    document_id: str,
+    project_id: str,
+    source_file: str,
+    original_url: str | None,
+) -> None:
+    for order, doc in enumerate(documents):
+        metadata = dict(doc.metadata or {})
+        metadata["source"] = "uploaded"
+        metadata["document_id"] = document_id
+        metadata["project_id"] = project_id
+        metadata["source_file"] = source_file
+        metadata["chunk_order"] = order
+        if original_url:
+            metadata["original_url"] = original_url
+        doc.metadata = metadata
+
+
 def _normalize_sources(source: str | Sequence[str]) -> list[str]:
     if isinstance(source, str):
         sources = [source]
@@ -217,4 +237,44 @@ def ingest_paper_to_qdrant(
         "skipped_existing_paper": all(
             result["skipped_existing_paper"] for result in source_results
         ),
+    }
+
+
+@measure_time
+def ingest_uploaded_pdf_to_qdrant(
+    *,
+    file_path: str | Path,
+    document_id: str,
+    project_id: str,
+    original_url: str | None,
+    collection_name: str = DEFAULT_QDRANT_COLLECTION,
+    artifacts_root: str | Path = DEFAULT_ARTIFACTS_DIR,
+    embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
+) -> dict[str, Any]:
+    resolved_path = Path(file_path).expanduser().resolve()
+    documents = docling_pdf_extractor(
+        file_path=str(resolved_path),
+        artifacts_root=artifacts_root,
+    )
+    _tag_uploaded_documents(
+        documents,
+        document_id=document_id,
+        project_id=project_id,
+        source_file=str(resolved_path),
+        original_url=original_url,
+    )
+    vectorstore = create_qdrant_index(
+        documents=documents,
+        embedding_model_name=embedding_model_name,
+        collection_name=collection_name,
+        recreate=False,
+    )
+    return {
+        "vectorstore": vectorstore,
+        "documents": documents,
+        "source_file": str(resolved_path),
+        "collection_name": collection_name,
+        "artifacts_root": str(artifacts_root),
+        "documents_indexed": len(documents),
+        "embedding_model": embedding_model_name,
     }

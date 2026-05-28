@@ -55,13 +55,13 @@ class Project(Base):
         session: AsyncSession,
         *,
         user_id: str,
-        title: str,
+        name: str,
         description: str,
         extra: dict | None = None,
     ) -> "Project":
         project = cls(
             user_id=user_id,
-            name=title,
+            name=name,
             description=description,
             extra=extra,
         )

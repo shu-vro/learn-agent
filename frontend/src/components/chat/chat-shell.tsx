@@ -31,7 +31,7 @@ export function ChatShell() {
           <ResizablePanelGroup
             id="learn-agent-chat-layout"
             orientation="horizontal"
-            defaultLayout={{ threads: 22, chat: 53, artifacts: 25 }}
+            defaultLayout={{ threads: 22, chat: 35, artifacts: 43 }}
             resizeTargetMinimumSize={{ fine: 6, coarse: 10 }}>
             <ResizablePanel
               id="threads"

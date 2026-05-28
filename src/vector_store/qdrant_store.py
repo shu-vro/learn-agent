@@ -57,7 +57,6 @@ def qdrant_collection_exists(
 
 def ensure_qdrant_collection(
     collection_name: str,
-    embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
     qdrant_client: QdrantClient | None = None,
 ) -> None:
     target_client = qdrant_client or client
@@ -88,7 +87,6 @@ def build_hybrid_qdrant_store(
     target_client = qdrant_client or client
     ensure_qdrant_collection(
         collection_name=collection_name,
-        embedding_model_name=embedding_model_name,
         qdrant_client=target_client,
     )
     return QdrantVectorStore(

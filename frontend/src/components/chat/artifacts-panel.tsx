@@ -25,6 +25,30 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { defaultRehypePlugins } from "streamdown";
+import { harden } from "rehype-harden";
+
+function artifactPreviewMarkdown(artifact: {
+  chunks: Record<string, string>;
+  ingestion_status?: string;
+}): string {
+  const text = Object.values(artifact.chunks)
+    .map((chunk) => {
+      return chunk.replaceAll("!\n\n[", "![").trim();
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (text) {
+    return text;
+  }
+  if (artifact.ingestion_status === "processing") {
+    return "_This document is being processed. It will appear here when ready._";
+  }
+  if (artifact.ingestion_status === "failed") {
+    return "_This document failed to process. Try uploading again._";
+  }
+  return "_No text content available for this file._";
+}
 
 function isDesktopViewport() {
   if (typeof window === "undefined") {
@@ -159,8 +183,28 @@ export function ArtifactsPanel({ className }: { className?: string }) {
               </ArtifactHeader>
               <CollapsibleContent className="min-h-0 overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
                 <div className="max-h-[calc(100vh-12rem)] overflow-auto px-4 pb-4">
-                  <MessageResponse className="text-sm">
-                    {selected.content}
+                  <MessageResponse
+                    className="text-sm"
+                    components={{
+                      img: ({ src, alt, ...props }) => {
+                        return <img src={src} alt={alt} {...props} />;
+                      },
+                    }}
+                    rehypePlugins={[
+                      defaultRehypePlugins.raw,
+                      defaultRehypePlugins.sanitize,
+                      [
+                        harden,
+                        {
+                          // allowedImagePrefixes: ["file://"],
+                          // allowDataImages: false,
+                          // allow any image
+                          allowAnyImage: true,
+                          // defaultOrigin: "file://",
+                        },
+                      ],
+                    ]}>
+                    {artifactPreviewMarkdown(selected)}
                   </MessageResponse>
                 </div>
               </CollapsibleContent>

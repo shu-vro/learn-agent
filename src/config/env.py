@@ -33,3 +33,19 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(
 CORS_ALLOW_ORIGINS = os.environ.get(
     "CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
+
+
+# AWS
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "mock_key")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "mock_secret")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_S3_ENDPOINT = os.environ.get("AWS_S3_ENDPOINT", "http://localhost:4566")
+AWS_S3_USE_PATH_STYLE = os.environ.get("AWS_S3_USE_PATH_STYLE", "true")
+AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET", "my-disposable-assets-bucket")
+AWS_CLOUDFRONT_DOMAIN = os.environ.get("AWS_CLOUDFRONT_DOMAIN", "http://localhost:4566")
+AWS_CLOUDFRONT_PUBLIC_KEY_ID = os.environ.get(
+    "AWS_CLOUDFRONT_PUBLIC_KEY_ID", "YOUR_PUBLIC_KEY_ID_FROM_TERRAFORM"
+)
+AWS_CLOUDFRONT_PRIVATE_KEY_PATH = os.environ.get(
+    "AWS_CLOUDFRONT_PRIVATE_KEY_PATH", "private_key.pem"
+)

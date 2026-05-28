@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config.env import CORS_ALLOW_ORIGINS
+from src.config.constants import ENVIRONMENT
 
 
 def create_api() -> FastAPI:
@@ -20,5 +21,10 @@ def create_api() -> FastAPI:
     )
 
     app.include_router(api_router, prefix="/api")
+
+    if ENVIRONMENT == "development":
+        from src.utils.helper import main
+
+        main()
 
     return app

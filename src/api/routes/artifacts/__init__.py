@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
+from typing import Any, Dict
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.constants import DEFAULT_QDRANT_COLLECTION
 from src.config.env import ASSET_UPLOAD_ROOT
 from src.db import get_session
+from src.db.models.chunk import Chunk, documents_chunks
 from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
+from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
 from src.utils.api.BaseResponse import BaseResponse
 
-ALLOWED_SUFFIXES = frozenset({".pdf"})
+ALLOWED_SUFFIXES = frozenset[str]({".pdf"})
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 router = APIRouter(prefix="/projects", tags=["artifacts"])
@@ -26,7 +32,8 @@ router = APIRouter(prefix="/projects", tags=["artifacts"])
 class ArtifactRead(BaseModel):
     id: str
     name: str
-    content: str
+    chunks: Dict[str, Any] = {}
+    ingestion_status: str = "completed"
 
 
 ArtifactsListResponse = BaseResponse[list[ArtifactRead]]
@@ -45,34 +52,48 @@ def _sanitize_stored_filename(filename: str) -> str:
     return cleaned[:200] or "file"
 
 
-def _artifact_preview_text(root: Path, doc: Document) -> str:
-    rel = doc.url
-    target = (root / rel).resolve()
-    try:
-        target.relative_to(root.resolve())
-    except ValueError:
-        return "_Invalid asset path._"
-    if not target.is_file():
-        return "_File missing on disk._"
-    suffix = _suffix_for_upload(doc.source)
-    if suffix == ".pdf":
-        return (
-            f"_PDF **{doc.source}**. Inline preview is not available here; "
-            "the file is stored on the server._"
+async def _get_document_chunks(
+    document_id: str,
+    session: AsyncSession,
+) -> list[Chunk]:
+    stmt = (
+        select(Chunk)
+        .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
+        .where(
+            documents_chunks.c.document_id == document_id,
+            Chunk.extra["type"].as_string() == "text_chunk",
         )
-    if suffix in {".md", ".markdown"}:
-        try:
-            return target.read_text(encoding="utf-8")
-        except OSError:
-            return "_Could not read markdown file._"
-    return f"_Unsupported type for **{doc.source}**._"
+        .order_by(documents_chunks.c.order.asc())
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+def _chunks_to_dict(chunks: list[Chunk]) -> Dict[str, Any]:
+    return {chunk.id: chunk.content for chunk in chunks}
 
 
 def _require_user(request: Request):
+    """Equivalent to request.state.user but safer."""
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
+
+
+async def _ensure_project_document_link(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    document_id: str,
+) -> None:
+    existing_link_stmt = select(ProjectDocument.id).where(
+        ProjectDocument.project_id == project_id,
+        ProjectDocument.document_id == document_id,
+    )
+    existing_link = await session.execute(existing_link_stmt)
+    if existing_link.scalar_one_or_none() is None:
+        session.add(ProjectDocument(project_id=project_id, document_id=document_id))
 
 
 @router.get("/{project_id}/artifacts", response_model=ArtifactsListResponse)
@@ -91,15 +112,21 @@ async def list_project_artifacts(
         .join(ProjectDocument, ProjectDocument.document_id == Document.id)
         .join(Project, Project.id == ProjectDocument.project_id)
         .where(ProjectDocument.project_id == project_id, Project.user_id == user.id)
-        .order_by(Document.source.asc())
+        .order_by(Document.name.asc())
     )
     result = await session.execute(stmt)
     docs = result.scalars().all()
-    root = ASSET_UPLOAD_ROOT
     items: list[ArtifactRead] = []
     for doc in docs:
-        content = await asyncio.to_thread(_artifact_preview_text, root, doc)
-        items.append(ArtifactRead(id=doc.id, name=doc.source, content=content))
+        doc_chunks = await _get_document_chunks(doc.id, session)
+        items.append(
+            ArtifactRead(
+                id=doc.id,
+                name=doc.name,
+                chunks=_chunks_to_dict(doc_chunks),
+                ingestion_status=doc.ingestion_status,
+            )
+        )
     return ArtifactsListResponse.ok(data=items)
 
 
@@ -120,7 +147,7 @@ async def upload_project_artifact(
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=400,
-            detail="Only .pdf and .md / .markdown files are allowed.",
+            detail="Only .pdf files are allowed.",
         )
 
     body = await file.read()
@@ -134,17 +161,132 @@ async def upload_project_artifact(
     dest = root / rel_path
     await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
     await asyncio.to_thread(dest.write_bytes, body)
+    source_file_url = dest.resolve().as_uri()
+    upload_sha256 = hashlib.sha256(body).hexdigest()
 
-    document = Document(id=doc_id, source=Path(raw_name).name, url=rel_path)
-    link = ProjectDocument(project_id=project_id, document_id=doc_id)
-    session.add(document)
-    session.add(link)
-    await session.commit()
-    await session.refresh(document)
+    should_process = False
+    existing_stmt = select(Document).where(Document.sha256 == upload_sha256)
+    existing_result = await session.execute(existing_stmt)
+    document = existing_result.scalar_one_or_none()
 
-    content = await asyncio.to_thread(_artifact_preview_text, root, document)
+    if document is None:
+        document = Document(
+            id=doc_id,
+            source="uploaded",
+            url=rel_path,
+            original_url=source_file_url,
+            name=Path(raw_name).name,
+            sha256=upload_sha256,
+            mime_type=file.content_type,
+            file_size=len(body),
+            ingestion_status="processing",
+        )
+        session.add(document)
+        await _ensure_project_document_link(
+            session,
+            project_id=project_id,
+            document_id=doc_id,
+        )
+        try:
+            await session.commit()
+            should_process = True
+        except IntegrityError:
+            await session.rollback()
+            race_result = await session.execute(existing_stmt)
+            document = race_result.scalar_one()
+            await _ensure_project_document_link(
+                session,
+                project_id=project_id,
+                document_id=document.id,
+            )
+            await session.commit()
+    else:
+        await _ensure_project_document_link(
+            session,
+            project_id=project_id,
+            document_id=document.id,
+        )
+        await session.commit()
+
+    if not should_process:
+        if dest.exists():
+            await asyncio.to_thread(dest.unlink)
+        if document.ingestion_status == "processing":
+            return ArtifactResponse.ok(
+                data=ArtifactRead(
+                    id=document.id,
+                    name=document.name,
+                    chunks={},
+                    ingestion_status=document.ingestion_status,
+                )
+            )
+        if document.ingestion_status == "completed":
+            doc_chunks = await _get_document_chunks(document.id, session)
+            return ArtifactResponse.ok(
+                data=ArtifactRead(
+                    id=document.id,
+                    name=document.name,
+                    chunks=_chunks_to_dict(doc_chunks),
+                    ingestion_status=document.ingestion_status,
+                )
+            )
+        return ArtifactResponse.ok(
+            data=ArtifactRead(
+                id=document.id,
+                name=document.name,
+                chunks={},
+                ingestion_status=document.ingestion_status,
+            )
+        )
+
+    try:
+        extraction_result = await asyncio.to_thread(
+            ingest_uploaded_pdf_to_qdrant,
+            file_path=dest,
+            document_id=document.id,
+            project_id=project_id,
+            original_url=source_file_url,
+            collection_name=DEFAULT_QDRANT_COLLECTION,
+        )
+        extracted_documents = extraction_result["documents"]
+
+        for order, extracted in enumerate(extracted_documents):
+            chunk = Chunk(
+                content=extracted.page_content,
+                extra=dict(extracted.metadata or {}),
+            )
+            session.add(chunk)
+            await session.flush()
+            await session.execute(
+                insert(documents_chunks).values(
+                    document_id=document.id,
+                    chunks_id=chunk.id,
+                    order=order,
+                )
+            )
+        document.ingestion_status = "completed"
+        document.ingestion_error = None
+        await session.commit()
+        await session.refresh(document)
+    except Exception as err:
+        await session.rollback()
+        document.ingestion_status = "failed"
+        document.ingestion_error = str(err)[:1000]
+        session.add(document)
+        await session.commit()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process uploaded PDF.",
+        ) from err
+
+    doc_chunks = await _get_document_chunks(document.id, session)
     return ArtifactResponse.ok(
-        data=ArtifactRead(id=document.id, name=document.source, content=content)
+        data=ArtifactRead(
+            id=document.id,
+            name=document.name,
+            chunks=_chunks_to_dict(doc_chunks),
+            ingestion_status=document.ingestion_status,
+        )
     )
 
 

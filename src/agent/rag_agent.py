@@ -12,7 +12,6 @@ from langchain_core.messages import (
 from langchain.agents.middleware import SummarizationMiddleware
 from langgraph.checkpoint.memory import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
-from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from src.db import CONN_URL
@@ -29,8 +28,9 @@ from src.config.constants import (
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.utils.time_utils import measure_time
 from src.agent.tools.document_retriever import retrieve_context
-from agent.tools.builtin_tools import duckduckgo_search, youtube_search
+from src.agent.tools.builtin_tools import duckduckgo_search, youtube_search
 from src.agent.prompts import main_agent_system_prompt
+from src.config.model_config import model_selector
 
 
 @dataclass(slots=True)
@@ -119,17 +119,26 @@ def answer_question(
         SUMMARIZATION_AGGREGATOR_KEY
     )
 
-    llm = init_chat_model(
-        model=config.llm_model,
-        temperature=0,
-        configurable_fields="any",
-        callbacks=[usage_aggregator] if usage_aggregator else None,
+    # llm = init_chat_model(
+    #     model=config.llm_model,
+    #     temperature=0,
+    #     configurable_fields="any",
+    #     callbacks=[usage_aggregator] if usage_aggregator else None,
+    # )
+
+    llm = model_selector(
+        config.llm_model, callbacks=[usage_aggregator] if usage_aggregator else None
     )
 
-    summarization_llm = init_chat_model(
-        model=config.llm_model,
+    # summarization_llm = init_chat_model(
+    #     model=config.llm_model,
+    #     temperature=0,
+    #     configurable_fields="any",
+    #     callbacks=[summarization_aggregator] if summarization_aggregator else None,
+    # )
+    summarization_llm = model_selector(
+        config.llm_model,
         temperature=0,
-        configurable_fields="any",
         callbacks=[summarization_aggregator] if summarization_aggregator else None,
     )
 
@@ -219,6 +228,7 @@ def answer_question(
 
 def interactive_chat(config: RagAppConfig) -> None:
     with PostgresSaver.from_conn_string(CONN_URL) as checkpointer:
+        checkpointer.setup()
         messages: list[BaseMessage] = []
         global_usage_aggregator = UsageAggregatorCallback("rag_agent_calls")
 

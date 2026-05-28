@@ -262,6 +262,7 @@ def main() -> None:
                 workers=args.workers,
                 log_level=args.log_level,
             )
+
             return
 
         from src.agent.rag_agent import RagAppConfig, answer_question, interactive_chat

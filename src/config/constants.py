@@ -14,7 +14,9 @@ DEFAULT_PAPER_SOURCES = [
 ]
 DEFAULT_ARTIFACTS_DIR = Path("data/artifacts")
 DEFAULT_DOWNLOADS_DIR = Path("data/downloads")
-DEFAULT_EMBEDDING_MODEL = "Octen/Octen-Embedding-0.6B"
+# DEFAULT_EMBEDDING_MODEL = "hf:Octen/Octen-Embedding-0.6B"
+# DEFAULT_EMBEDDING_MODEL = "ollama:nomic-embed-text"
+DEFAULT_EMBEDDING_MODEL = "openai:text-embedding-3-small"
 DEFAULT_VISION_MODEL = "ollama:gemma4:e2b"
 DEFAULT_LLM_MODEL = "ollama:gemma4:e2b"
 # DEFAULT_LLM_MODEL = "openai:gpt-4.1-adf"

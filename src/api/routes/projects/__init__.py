@@ -5,7 +5,7 @@ from src.db import get_session
 from src.db.models.project import Project
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.db.read_schema import read_schema_for_orm_columns
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Pydantic shape is derived from ``Project`` columns — add DB fields only there.
 ProjectRead = read_schema_for_orm_columns(Project, name="ProjectRead")
@@ -28,8 +28,9 @@ async def get_projects(
 
 
 class ProjectCreate(BaseModel):
-    title: str
-    description: str
+    name: str = ""
+    description: str = ""
+    extra: dict = Field(default_factory=dict)
 
 
 @router.post("/", response_model=ProjectResponse)
@@ -42,6 +43,10 @@ async def create_project(
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     project = await Project.create(
-        session, user_id=user.id, title=payload.title, description=payload.description
+        session,
+        user_id=user.id,
+        name=payload.name,
+        description=payload.description,
+        extra=payload.extra or None,
     )
     return ProjectResponse.ok(data=ProjectRead.model_validate(project))

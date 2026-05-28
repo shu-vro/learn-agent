@@ -16,7 +16,8 @@ export type ChatMessageSeed = {
 export type ArtifactSeed = {
   id: string;
   name: string;
-  content: string;
+  chunks: Record<string, string>;
+  ingestion_status?: string;
 };
 
 export const SEED_PROJECTS: ProjectSeed[] = [
@@ -86,7 +87,10 @@ export const SEED_ARTIFACTS: ArtifactSeed[] = [
   {
     id: "a-1",
     name: "README.md",
-    content:
-      "# Sample artifact\n\nThis preview uses the same **Streamdown** renderer as chat messages.",
+    chunks: {
+      "seed-1":
+        "# Sample artifact\n\nThis preview uses the same **Streamdown** renderer as chat messages.",
+    },
+    ingestion_status: "completed",
   },
 ];

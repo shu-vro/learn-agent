@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, String
+from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from src.db.models.base import Base
@@ -8,6 +8,9 @@ from src.db.models.base import Base
 
 class ProjectDocument(Base):
     __tablename__ = "projects_documents"
+    __table_args__ = (
+        UniqueConstraint("project_id", "document_id", name="uq_project_document_link"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)

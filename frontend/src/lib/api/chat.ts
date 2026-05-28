@@ -12,18 +12,20 @@ export type Thread = ThreadSeed;
 export type ChatMessage = ChatMessageSeed;
 export type Artifact = ArtifactSeed;
 
-function isArtifactList(value: unknown): value is Artifact[] {
+function isArtifact(value: unknown): value is Artifact {
   return (
-    Array.isArray(value) &&
-    value.every(
-      (x) =>
-        x !== null &&
-        typeof x === "object" &&
-        "id" in x &&
-        "name" in x &&
-        "content" in x,
-    )
+    value !== null &&
+    typeof value === "object" &&
+    "id" in value &&
+    "name" in value &&
+    "chunks" in value &&
+    typeof (value as Artifact).chunks === "object" &&
+    (value as Artifact).chunks !== null
   );
+}
+
+function isArtifactList(value: unknown): value is Artifact[] {
+  return Array.isArray(value) && value.every(isArtifact);
 }
 
 export async function listThreads(
@@ -76,18 +78,17 @@ export async function uploadArtifact(
     endpoint: `/projects/${projectId}/artifacts`,
     params: form,
   });
-  if (
-    res !== null &&
-    typeof res === "object" &&
-    "id" in res &&
-    "name" in res &&
-    "content" in res
-  ) {
-    return res as Artifact;
+  if (isArtifact(res)) {
+    return res;
   }
   return null;
 }
 
-export function createLocalArtifact(name: string, content: string): Artifact {
-  return { id: nanoid(), name, content };
+export function createLocalArtifact(name: string, text: string): Artifact {
+  return {
+    id: nanoid(),
+    name,
+    chunks: { [nanoid()]: text },
+    ingestion_status: "completed",
+  };
 }
