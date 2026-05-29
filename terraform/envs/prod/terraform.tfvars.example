@@ -1,0 +1,11 @@
+project     = "learn-agent"
+environment = "prod"
+aws_region  = "us-east-1"
+
+# ACM must be in us-east-1 for CloudFront.
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+cloudfront_aliases  = ["assets.example.com"]
+
+# Do not put cloudfront_public_key in this file — use:
+#   export TF_VAR_cloudfront_public_key="$(cat public_key.pem)"
+# or your CI secret store.

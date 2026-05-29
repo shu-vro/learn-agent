@@ -1,0 +1,8 @@
+project = "learn-agent"
+
+# LocalStack mock credentials (defaults match providers.tf)
+# access_key = "mock_key" # pragma: allowlist secret
+# secret_key = "mock_secret" # pragma: allowlist secret
+
+# Optional: keep a stable bucket name for local .env alignment
+# bucket_name = "learn-agent-local-assets"
