@@ -4,6 +4,7 @@ from typing import Any
 from langchain_core.documents import Document
 
 from src.lib.docling_lib import docling_pdf_extractor
+from src.lib.paper_fingerprint import _sha256_for_file
 from src.lib.paper_fingerprint import PaperFingerprint, fingerprint_paper_source
 from src.vector_store.qdrant_store import (
     create_qdrant_index,
@@ -169,8 +170,10 @@ def ingest_paper_to_qdrant(
         documents = docling_pdf_extractor(
             file_path=str(resolved_paper.local_path),
             artifacts_root=artifacts_root,
+            content_hash=paper_sha256,
             image_describer=image_describer,
             formula_transcriber=formula_transcriber,
+            upload_mode=False,
         )
         _tag_documents_with_paper_hash(documents, current_source, paper_sha256)
 
@@ -255,6 +258,7 @@ def ingest_uploaded_pdf_to_qdrant(
     documents = docling_pdf_extractor(
         file_path=str(resolved_path),
         artifacts_root=artifacts_root,
+        content_hash=_sha256_for_file(resolved_path),
         upload_mode=True,
     )
     _tag_uploaded_documents(

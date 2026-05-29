@@ -21,9 +21,10 @@ def _is_remote_source(source: str) -> bool:
     return parsed.scheme in {"http", "https"}
 
 
-def _sha256_for_file(file_path: Path) -> str:
+def _sha256_for_file(file_path: Path | str) -> str:
+    path = Path(file_path)
     hasher = hashlib.sha256()
-    with file_path.open("rb") as source_file:
+    with path.open("rb") as source_file:
         while chunk := source_file.read(1024 * 1024):
             hasher.update(chunk)
     return hasher.hexdigest()

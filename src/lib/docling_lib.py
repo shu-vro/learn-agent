@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 from src.utils.time_utils import measure_time
 
+from src.lib.paper_fingerprint import _sha256_for_file
 from src.utils.textsplitters import chunk_text
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
@@ -201,6 +202,7 @@ def docling_pdf_extractor(
     formula_transcriber: Callable[[Path, str], str] | None = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 250,
+    content_hash: str | None = None,
     upload_mode: bool = False,
 ) -> list[Document]:
     time_tracker: dict[str, float] = {}
@@ -211,16 +213,17 @@ def docling_pdf_extractor(
             converter = _build_docling_converter()
             conv_res = converter.convert(file_path)
 
-        doc_filename = conv_res.input.file.stem
+        resolved_file_path = Path(file_path).expanduser().resolve()
+        doc_id = content_hash or _sha256_for_file(resolved_file_path)
         artifacts_root_path = Path(artifacts_root)
-        doc_artifacts_dir = artifacts_root_path / doc_filename
+        doc_artifacts_dir = artifacts_root_path / doc_id
         formula_output_dir = doc_artifacts_dir / "formulas"
         image_output_dir = doc_artifacts_dir / "images"
         doc_artifacts_dir.mkdir(parents=True, exist_ok=True)
         formula_output_dir.mkdir(parents=True, exist_ok=True)
         image_output_dir.mkdir(parents=True, exist_ok=True)
 
-        md_filename = doc_artifacts_dir / f"{doc_filename}.md"
+        md_filename = doc_artifacts_dir / f"{doc_id}.md"
 
         with measure_time("markdown_export", tracker=time_tracker):
             conv_res.document.save_as_markdown(
@@ -229,7 +232,7 @@ def docling_pdf_extractor(
                 image_mode=ImageRefMode.REFERENCED,
             )
             full_markdown = md_filename.read_text(encoding="utf-8")
-            _cleanup_docling_export_junk(doc_artifacts_dir, doc_filename)
+            _cleanup_docling_export_junk(doc_artifacts_dir, doc_id)
             markdown_image_paths = _extract_markdown_image_paths(full_markdown)
         formula_placeholder_token = "<!-- formula-not-decoded -->"
         pending_placeholders = full_markdown.count(formula_placeholder_token)
@@ -263,7 +266,7 @@ def docling_pdf_extractor(
                         if formula_image is not None:
                             formula_image_filename = (
                                 formula_output_dir
-                                / f"{doc_filename}-formula-{formula_counter + 1}.png"
+                                / f"{doc_id}-formula-{formula_counter + 1}.png"
                             )
                             formula_image.save(formula_image_filename, "PNG")
 
@@ -362,7 +365,7 @@ def docling_pdf_extractor(
                             page_content="\n".join(image_context_parts),
                             metadata={
                                 "source": file_path,
-                                "doc_id": doc_filename,
+                                "doc_id": doc_id,
                                 "type": "image",
                                 "path": str(element_image_filename),
                                 "page": page_no,
@@ -382,6 +385,31 @@ def docling_pdf_extractor(
         full_markdown = _normalize_markdown_image_paths(full_markdown)
         md_filename.write_text(full_markdown, encoding="utf-8")
 
+        s3_artifact_keys: list[str] = []
+        s3_markdown_key: str | None = None
+        if upload_mode:
+            from src.lib.aws import (
+                artifact_markdown_s3_key,
+                artifact_s3_prefix,
+                upload_artifacts_directory_to_s3,
+            )
+
+            with measure_time("s3_upload", tracker=time_tracker):
+                s3_artifact_keys = upload_artifacts_directory_to_s3(
+                    doc_artifacts_dir,
+                    doc_id,
+                )
+                s3_markdown_key = artifact_markdown_s3_key(doc_id)
+                print(
+                    f"Uploaded {len(s3_artifact_keys)} artifact files to S3 "
+                    f"under {artifact_s3_prefix(doc_id)}/"
+                )
+
+            for image_doc in image_documents:
+                image_metadata = dict(image_doc.metadata or {})
+                image_metadata["s3_artifact_prefix"] = artifact_s3_prefix(doc_id)
+                image_doc.metadata = image_metadata
+
         with measure_time("text_chunking", tracker=time_tracker):
             markdown_chunks = chunk_text(
                 text=full_markdown,
@@ -390,17 +418,22 @@ def docling_pdf_extractor(
             )
 
             for idx, chunk in enumerate(markdown_chunks, start=1):
+                chunk_metadata: dict[str, object] = {
+                    "source": file_path,
+                    "doc_id": doc_id,
+                    "type": "text_chunk",
+                    "chunk_id": idx,
+                    "chunk_total": len(markdown_chunks),
+                    "markdown_path": str(md_filename),
+                }
+                if upload_mode and s3_markdown_key:
+                    chunk_metadata["s3_artifact_prefix"] = artifact_s3_prefix(doc_id)
+                    chunk_metadata["markdown_s3_key"] = s3_markdown_key
+
                 documents.append(
                     Document(
                         page_content=chunk,
-                        metadata={
-                            "source": file_path,
-                            "doc_id": doc_filename,
-                            "type": "text_chunk",
-                            "chunk_id": idx,
-                            "chunk_total": len(markdown_chunks),
-                            "markdown_path": str(md_filename),
-                        },
+                        metadata=chunk_metadata,
                     )
                 )
 

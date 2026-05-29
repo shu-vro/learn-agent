@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import mimetypes
+
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -43,11 +46,57 @@ s3_client = boto3.client(
 )
 
 
-def upload_file_to_s3(local_path, s3_key, bucket_name="main"):
-    """Uploads a file securely to S3. No public ACLs allowed."""
-    print(f"Uploading {local_path} to S3 bucket...")
-    s3_client.upload_file(local_path, BUCKET_NAME[bucket_name], s3_key)
-    print("Upload Complete.")
+def upload_file_to_s3(
+    local_path: str | Path,
+    s3_key: str,
+    bucket_name: str = "main",
+) -> str:
+    """Upload a file to S3. No public ACLs are applied."""
+    path = Path(local_path)
+    bucket = BUCKET_NAME[bucket_name]
+    extra_args: dict[str, str] = {}
+    content_type, _ = mimetypes.guess_type(path.name)
+    if content_type:
+        extra_args["ContentType"] = content_type
+
+    upload_kwargs: dict[str, object] = {}
+    if extra_args:
+        upload_kwargs["ExtraArgs"] = extra_args
+
+    s3_client.upload_file(str(path), bucket, s3_key, **upload_kwargs)
+    return s3_key
+
+
+def upload_artifacts_directory_to_s3(
+    local_dir: str | Path,
+    doc_id: str,
+    *,
+    s3_prefix: str = "artifacts",
+    bucket_name: str = "main",
+) -> list[str]:
+    """Upload a hashed artifact directory to S3, preserving relative paths."""
+    root = Path(local_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"Artifact directory not found: {root}")
+
+    uploaded_keys: list[str] = []
+    for file_path in sorted(root.rglob("*")):
+        if not file_path.is_file():
+            continue
+        relative_key = file_path.relative_to(root).as_posix()
+        s3_key = f"{s3_prefix}/{doc_id}/{relative_key}"
+        upload_file_to_s3(file_path, s3_key, bucket_name=bucket_name)
+        uploaded_keys.append(s3_key)
+
+    return uploaded_keys
+
+
+def artifact_s3_prefix(doc_id: str, *, s3_prefix: str = "artifacts") -> str:
+    return f"{s3_prefix}/{doc_id}"
+
+
+def artifact_markdown_s3_key(doc_id: str, *, s3_prefix: str = "artifacts") -> str:
+    return f"{artifact_s3_prefix(doc_id, s3_prefix=s3_prefix)}/{doc_id}.md"
 
 
 def rsa_signer(message):
