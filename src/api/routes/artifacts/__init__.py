@@ -22,6 +22,7 @@ from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
 from src.utils.api.BaseResponse import BaseResponse
+from src.utils.api.artifact_markdown_fixer import rewrite_chunk_image_urls
 
 ALLOWED_SUFFIXES = frozenset[str]({".pdf"})
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -69,8 +70,11 @@ async def _get_document_chunks(
     return list(result.scalars().all())
 
 
-def _chunks_to_dict(chunks: list[Chunk]) -> Dict[str, Any]:
-    return {chunk.id: chunk.content for chunk in chunks}
+def _chunks_to_dict(chunks: list[Chunk], *, doc_sha256: str | None) -> Dict[str, Any]:
+    return {
+        chunk.id: rewrite_chunk_image_urls(chunk.content, doc_sha256)
+        for chunk in chunks
+    }
 
 
 def _require_user(request: Request):
@@ -123,7 +127,7 @@ async def list_project_artifacts(
             ArtifactRead(
                 id=doc.id,
                 name=doc.name,
-                chunks=_chunks_to_dict(doc_chunks),
+                chunks=_chunks_to_dict(doc_chunks, doc_sha256=doc.sha256),
                 ingestion_status=doc.ingestion_status,
             )
         )
@@ -226,7 +230,7 @@ async def upload_project_artifact(
                 data=ArtifactRead(
                     id=document.id,
                     name=document.name,
-                    chunks=_chunks_to_dict(doc_chunks),
+                    chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
                     ingestion_status=document.ingestion_status,
                 )
             )
@@ -284,7 +288,7 @@ async def upload_project_artifact(
         data=ArtifactRead(
             id=document.id,
             name=document.name,
-            chunks=_chunks_to_dict(doc_chunks),
+            chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
             ingestion_status=document.ingestion_status,
         )
     )

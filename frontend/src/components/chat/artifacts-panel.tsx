@@ -32,12 +32,7 @@ function artifactPreviewMarkdown(artifact: {
   chunks: Record<string, string>;
   ingestion_status?: string;
 }): string {
-  const text = Object.values(artifact.chunks)
-    .map((chunk) => {
-      return chunk.replaceAll("!\n\n[", "![").trim();
-    })
-    .filter(Boolean)
-    .join("\n\n");
+  const text = Object.values(artifact.chunks).join("\n\n");
   if (text) {
     return text;
   }
@@ -183,27 +178,7 @@ export function ArtifactsPanel({ className }: { className?: string }) {
               </ArtifactHeader>
               <CollapsibleContent className="min-h-0 overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
                 <div className="max-h-[calc(100vh-12rem)] overflow-auto px-4 pb-4">
-                  <MessageResponse
-                    className="text-sm"
-                    components={{
-                      img: ({ src, alt, ...props }) => {
-                        return <img src={src} alt={alt} {...props} />;
-                      },
-                    }}
-                    rehypePlugins={[
-                      defaultRehypePlugins.raw,
-                      defaultRehypePlugins.sanitize,
-                      [
-                        harden,
-                        {
-                          // allowedImagePrefixes: ["file://"],
-                          // allowDataImages: false,
-                          // allow any image
-                          allowAnyImage: true,
-                          // defaultOrigin: "file://",
-                        },
-                      ],
-                    ]}>
+                  <MessageResponse className="text-sm">
                     {artifactPreviewMarkdown(selected)}
                   </MessageResponse>
                 </div>
