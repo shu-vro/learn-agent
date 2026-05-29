@@ -75,6 +75,44 @@ def _normalize_equation_ocr_lib(equation_ocr_lib: str) -> str:
     return normalized
 
 
+def _vision_callbacks(
+    *,
+    vision_model_name: str = DEFAULT_VISION_MODEL,
+    equation_ocr_lib: str = DEFAULT_OCR_LIB,
+    use_vision_model: bool = True,
+    use_image_descriptions: bool = True,
+    use_formula_transcription: bool = True,
+) -> tuple[Any | None, Any | None, str]:
+    """Return (image_describer, formula_transcriber, normalized equation_ocr_lib)."""
+    selected_equation_ocr_lib = _normalize_equation_ocr_lib(equation_ocr_lib)
+
+    if not use_vision_model:
+        use_image_descriptions = False
+        use_formula_transcription = False
+
+    needs_llm_vision = use_image_descriptions or (
+        use_formula_transcription and selected_equation_ocr_lib == "llm"
+    )
+
+    vision_client = None
+    if needs_llm_vision:
+        vision_client = OllamaVisionClient(model=vision_model_name)
+
+    image_describer = None
+    if use_image_descriptions and vision_client is not None:
+        image_describer = vision_client.describe_image
+
+    formula_transcriber = None
+    if use_formula_transcription:
+        if selected_equation_ocr_lib == "local":
+            formula_client = Pix2TexFormulaTranscriber()
+            formula_transcriber = formula_client.transcribe_formula_latex
+        elif vision_client is not None:
+            formula_transcriber = vision_client.transcribe_formula_latex
+
+    return image_describer, formula_transcriber, selected_equation_ocr_lib
+
+
 @measure_time
 def ingest_paper_to_qdrant(
     source: str | Sequence[str] = DEFAULT_PAPER_SOURCES,
@@ -96,33 +134,13 @@ def ingest_paper_to_qdrant(
             "paper_fingerprint is only supported for single-source ingestion."
         )
 
-    selected_equation_ocr_lib = _normalize_equation_ocr_lib(equation_ocr_lib)
-
-    image_describer = None
-    formula_transcriber = None
-    if not use_vision_model:
-        use_image_descriptions = False
-        use_formula_transcription = False
-
-    needs_llm_vision = use_image_descriptions or (
-        use_formula_transcription and selected_equation_ocr_lib == "llm"
+    image_describer, formula_transcriber, selected_equation_ocr_lib = _vision_callbacks(
+        vision_model_name=vision_model_name,
+        equation_ocr_lib=equation_ocr_lib,
+        use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
     )
-
-    vision_client = None
-    if needs_llm_vision:
-        vision_client = OllamaVisionClient(
-            model=vision_model_name,
-        )
-
-    if use_image_descriptions and vision_client is not None:
-        image_describer = vision_client.describe_image
-
-    if use_formula_transcription:
-        if selected_equation_ocr_lib == "local":
-            formula_client = Pix2TexFormulaTranscriber()
-            formula_transcriber = formula_client.transcribe_formula_latex
-        elif vision_client is not None:
-            formula_transcriber = vision_client.transcribe_formula_latex
 
     print(
         f"{use_vision_model=}, {use_image_descriptions=}, "
@@ -253,12 +271,31 @@ def ingest_uploaded_pdf_to_qdrant(
     collection_name: str = DEFAULT_QDRANT_COLLECTION,
     artifacts_root: str | Path = DEFAULT_ARTIFACTS_DIR,
     embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
+    vision_model_name: str = DEFAULT_VISION_MODEL,
+    equation_ocr_lib: str = DEFAULT_OCR_LIB,
+    use_vision_model: bool = True,
+    use_image_descriptions: bool = True,
+    use_formula_transcription: bool = True,
+    recreate_collection: bool = False,
 ) -> dict[str, Any]:
     resolved_path = Path(file_path).expanduser().resolve()
+    image_describer, formula_transcriber, selected_equation_ocr_lib = _vision_callbacks(
+        vision_model_name=vision_model_name,
+        equation_ocr_lib=equation_ocr_lib,
+        use_vision_model=use_vision_model,
+        use_image_descriptions=use_image_descriptions,
+        use_formula_transcription=use_formula_transcription,
+    )
+    print(
+        f"upload ingest: {use_vision_model=}, {use_image_descriptions=}, "
+        f"{use_formula_transcription=}, {selected_equation_ocr_lib=}"
+    )
     documents = docling_pdf_extractor(
         file_path=str(resolved_path),
         artifacts_root=artifacts_root,
         content_hash=_sha256_for_file(resolved_path),
+        image_describer=image_describer,
+        formula_transcriber=formula_transcriber,
         upload_mode=True,
     )
     _tag_uploaded_documents(
@@ -272,7 +309,7 @@ def ingest_uploaded_pdf_to_qdrant(
         documents=documents,
         embedding_model_name=embedding_model_name,
         collection_name=collection_name,
-        recreate=False,
+        recreate=recreate_collection,
     )
     return {
         "vectorstore": vectorstore,

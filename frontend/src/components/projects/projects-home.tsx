@@ -4,7 +4,9 @@ import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
 import { ProjectCard } from "@/components/projects/project-card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +15,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   createProjectRemote,
@@ -27,8 +35,17 @@ type MenuState =
   | { open: false }
   | { open: true; x: number; y: number; project: Project };
 
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) ?? "?").toUpperCase();
+}
+
 export function ProjectsHome() {
   const router = useRouter();
+  const { user, logout, loading: authLoading } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [menu, setMenu] = useState<MenuState>({ open: false });
   const [editOpen, setEditOpen] = useState(false);
@@ -124,25 +141,56 @@ export function ProjectsHome() {
             <p className="text-muted-foreground text-sm">Your projects</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              nativeButton={false}
-              render={<Link href="/auth/login" />}>
-              Log in
-            </Button>
-            <Button
-              size="sm"
-              nativeButton={false}
-              render={<Link href="/auth/register" />}>
-              Register
-            </Button>
+            {!authLoading && !user ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/auth/login" />}
+                >
+                  Log in
+                </Button>
+                <Button
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/auth/register" />}
+                >
+                  Register
+                </Button>
+              </>
+            ) : null}
+            {!authLoading && user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="Account menu"
+                >
+                  <Avatar size="lg">
+                    <AvatarFallback>{userInitials(user.name)}</AvatarFallback>
+                  </Avatar>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => router.push("/settings")}>
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void logout();
+                    }}
+                  >
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button
               type="button"
-              size="icon"
+              size="icon-lg"
               className="rounded-full"
-              onClick={handleNewProject}>
-              <PlusIcon className="size-5" />
+              onClick={handleNewProject}
+            >
+              <PlusIcon className="size-4" />
               <span className="sr-only">New project</span>
             </Button>
           </div>
@@ -184,7 +232,8 @@ export function ProjectsHome() {
                   typeof window !== "undefined" ? window.innerHeight : 400;
                 return Math.min(Math.max(8, menu.y), Math.max(8, vh - 140));
               })(),
-            }}>
+            }}
+          >
             <MenuRow onClick={() => openProject(menu.project)}>Open</MenuRow>
             <MenuRow onClick={() => startEdit(menu.project)}>
               <PencilIcon className="size-4 opacity-70" />
@@ -192,7 +241,8 @@ export function ProjectsHome() {
             </MenuRow>
             <MenuRow
               variant="destructive"
-              onClick={() => void handleDelete(menu.project)}>
+              onClick={() => void handleDelete(menu.project)}
+            >
               <Trash2Icon className="size-4 opacity-70" />
               Delete
             </MenuRow>
@@ -225,7 +275,8 @@ export function ProjectsHome() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setEditOpen(false)}>
+              onClick={() => setEditOpen(false)}
+            >
               Cancel
             </Button>
             <Button type="button" onClick={() => void saveEdit()}>
@@ -259,7 +310,8 @@ function MenuRow({
       )}
       onClick={() => {
         onClick();
-      }}>
+      }}
+    >
       {children}
     </button>
   );

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +19,7 @@ import { formatRequestError } from "@/lib/api-error";
 
 export function LoginForm() {
   const router = useRouter();
+  const { refreshProfile } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export function LoginForm() {
     setPending(true);
     try {
       await loginRequest({ email, password });
+      await refreshProfile();
       router.push("/");
       router.refresh();
     } catch (err) {

@@ -27,7 +27,7 @@ function extractData<T = unknown>(data: unknown): T | null {
 }
 
 const request = async (
-  method: "get" | "put" | "post" | "delete" = "get",
+  method: "get" | "put" | "post" | "patch" | "delete" = "get",
   {
     endpoint = "",
     params = {},
@@ -124,6 +124,28 @@ export const post = async ({
   overrideEncryptedResponsesOnly = false,
 }: Partial<RequestOptions>) => {
   return await request("post", {
+    endpoint,
+    params,
+    token,
+    full,
+    throwable,
+    version,
+    baseUrl,
+    overrideEncryptedResponsesOnly,
+  });
+};
+
+export const patch = async ({
+  endpoint = "",
+  params = {},
+  token = "",
+  full = false,
+  throwable = false,
+  version = "v1",
+  baseUrl,
+  overrideEncryptedResponsesOnly = false,
+}: Partial<RequestOptions>) => {
+  return await request("patch", {
     endpoint,
     params,
     token,

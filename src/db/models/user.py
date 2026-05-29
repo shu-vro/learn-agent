@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
 
 from src.db.models.base import Base
+from src.db.models.preferences import Preferences
 from src.utils.argon2_utils import hash_password
 
 
@@ -34,6 +35,12 @@ class User(Base):
     projects = relationship("Project", back_populates="user")
     threads = relationship("Thread", back_populates="user")
     chats = relationship("Chat", back_populates="user")
+    preferences = relationship(
+        "Preferences",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @classmethod
     async def get_by_email(cls, session: AsyncSession, email: str) -> Optional["User"]:
@@ -52,6 +59,8 @@ class User(Base):
     ) -> "User":
         user = cls(name=name, email=email, password=hash_password(password))
         session.add(user)
+        await session.flush()
+        session.add(Preferences(user_id=user.id))
         await session.commit()
         await session.refresh(user)
         return user

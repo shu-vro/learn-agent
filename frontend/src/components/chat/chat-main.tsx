@@ -20,7 +20,12 @@ export function ChatMain({ className }: { className?: string }) {
   const { messages, appendUserMessage } = useChatWorkspace();
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col bg-black", className)}>
+    <div
+      className={cn(
+        "flex h-full min-h-0 flex-col bg-background dark:bg-black",
+        className,
+      )}
+    >
       <div className="flex shrink-0 items-center border-border/30 border-b px-4 py-3">
         <h1 className="font-medium text-sm">Chat</h1>
       </div>
@@ -52,7 +57,7 @@ export function ChatMain({ className }: { className?: string }) {
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="shrink-0 border-border/30 border-t bg-black px-4 py-4">
+      <div className="shrink-0 border-border/30 border-t px-4 py-4">
         <div className="mx-auto w-full max-w-3xl">
           <ChatPrompt
             onSubmit={(text, e: FormEvent<HTMLFormElement>) => {

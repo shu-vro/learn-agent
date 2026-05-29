@@ -9,7 +9,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   const { project } = await searchParams;
   return (
     <ChatWorkspaceProvider projectId={project ?? null}>
-      <ChatShell />
+      <ChatShell projectId={project ?? null} />
     </ChatWorkspaceProvider>
   );
 }

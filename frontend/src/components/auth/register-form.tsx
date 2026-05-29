@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +19,7 @@ import { formatRequestError } from "@/lib/api-error";
 
 export function RegisterForm() {
   const router = useRouter();
+  const { refreshProfile } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,6 +36,7 @@ export function RegisterForm() {
     setPending(true);
     try {
       await registerRequest({ name, email, password });
+      await refreshProfile();
       router.push("/");
       router.refresh();
     } catch (err) {

@@ -14,6 +14,16 @@ repos:
       - id: ruff-check
         args: [--fix, --extend-ignore=E402]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: biome check (frontend)
+        entry: bash -c 'cd frontend && bunx biome check --write --staged --files-ignore-unknown=true --no-errors-on-unmatched'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:

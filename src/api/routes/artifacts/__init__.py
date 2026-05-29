@@ -7,13 +7,15 @@ from typing import Any, Dict
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.constants import DEFAULT_QDRANT_COLLECTION
+from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
+from src.db.models.preferences import Preferences
+from src.schemas.preferences import UserPreferencesPublic, resolve_ingestion_flags
 from src.config.env import ASSET_UPLOAD_ROOT
 from src.db import get_session
 from src.db.models.chunk import Chunk, documents_chunks
@@ -134,12 +136,23 @@ async def list_project_artifacts(
     return ArtifactsListResponse.ok(data=items)
 
 
+def _form_bool(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @router.post("/{project_id}/artifacts", response_model=ArtifactResponse)
 async def upload_project_artifact(
     request: Request,
     project_id: str,
     session: AsyncSession = Depends(get_session),
     file: UploadFile = File(...),
+    use_vision_model: str | None = Form(None),
+    use_image_descriptions: str | None = Form(None),
+    use_formula_transcription: str | None = Form(None),
+    equation_ocr_lib: str | None = Form(None),
+    rebuild: str | None = Form(None),
 ) -> ArtifactResponse:
     user = _require_user(request)
     project = await Project.get_by_id_for_user(session, project_id, user.id)
@@ -243,6 +256,17 @@ async def upload_project_artifact(
             )
         )
 
+    prefs_row = await Preferences.get_or_create(session, user.id)
+    base_ingestion = UserPreferencesPublic.from_model(prefs_row).ingestion
+    ingestion = resolve_ingestion_flags(
+        base_ingestion,
+        use_vision_model=_form_bool(use_vision_model),
+        use_image_descriptions=_form_bool(use_image_descriptions),
+        use_formula_transcription=_form_bool(use_formula_transcription),
+        equation_ocr_lib=equation_ocr_lib if equation_ocr_lib else None,
+    )
+    recreate_collection = _form_bool(rebuild) or False
+
     try:
         extraction_result = await asyncio.to_thread(
             ingest_uploaded_pdf_to_qdrant,
@@ -251,6 +275,11 @@ async def upload_project_artifact(
             project_id=project_id,
             original_url=source_file_url,
             collection_name=DEFAULT_QDRANT_COLLECTION,
+            equation_ocr_lib=ingestion.equation_ocr_lib or DEFAULT_OCR_LIB,
+            use_vision_model=ingestion.use_vision_model,
+            use_image_descriptions=ingestion.use_image_descriptions,
+            use_formula_transcription=ingestion.use_formula_transcription,
+            recreate_collection=recreate_collection,
         )
         extracted_documents = extraction_result["documents"]
 

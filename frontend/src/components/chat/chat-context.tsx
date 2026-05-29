@@ -20,6 +20,7 @@ import {
   type Thread,
   uploadArtifact,
 } from "@/lib/api/chat";
+import type { IngestionUploadOptions } from "@/lib/api/preferences";
 
 type ChatWorkspaceValue = {
   threads: Thread[];
@@ -31,7 +32,10 @@ type ChatWorkspaceValue = {
   artifacts: Artifact[];
   selectedArtifactId: string | null;
   setSelectedArtifactId: (id: string | null) => void;
-  addArtifactFromFile: (file: File) => Promise<void>;
+  addArtifactFromFile: (
+    file: File,
+    ingestion?: IngestionUploadOptions,
+  ) => Promise<void>;
 };
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceValue | null>(null);
@@ -134,9 +138,9 @@ export function ChatWorkspaceProvider({
   }, []);
 
   const addArtifactFromFile = useCallback(
-    async (file: File) => {
+    async (file: File, ingestion?: IngestionUploadOptions) => {
       if (projectId) {
-        const created = await uploadArtifact(projectId, file);
+        const created = await uploadArtifact(projectId, file, ingestion);
         if (created) {
           setArtifacts((prev) => [...prev, created]);
           setSelectedArtifactId(created.id);

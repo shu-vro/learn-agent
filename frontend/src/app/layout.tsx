@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Figtree } from "next/font/google";
+import { Figtree, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AppProviders } from "@/components/providers/app-providers";
 import { cn } from "@/lib/utils";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const figtree = Figtree({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -29,16 +29,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={cn(
-        "dark h-full",
+        "h-full",
         "antialiased",
         geistSans.variable,
         geistMono.variable,
         "font-sans",
         figtree.variable,
-      )}>
+      )}
+    >
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

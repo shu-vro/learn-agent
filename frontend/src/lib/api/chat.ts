@@ -1,5 +1,9 @@
 import { nanoid } from "nanoid";
 import {
+  appendIngestionToFormData,
+  type IngestionUploadOptions,
+} from "@/lib/api/preferences";
+import {
   type ArtifactSeed,
   type ChatMessageSeed,
   SEED_MESSAGES_BY_THREAD,
@@ -71,9 +75,13 @@ export async function listArtifacts(
 export async function uploadArtifact(
   projectId: string,
   file: File,
+  ingestion?: IngestionUploadOptions,
 ): Promise<Artifact | null> {
   const form = new FormData();
   form.append("file", file);
+  if (ingestion) {
+    appendIngestionToFormData(form, ingestion);
+  }
   const res = await post({
     endpoint: `/projects/${projectId}/artifacts`,
     params: form,

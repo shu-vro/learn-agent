@@ -1,3 +1,4 @@
+import type { UserProfile } from "@/lib/api/preferences";
 import { get, post } from "@/utils/fetch";
 
 export type UserPublic = {
@@ -31,10 +32,15 @@ export async function registerRequest(body: {
   return data as UserPublic;
 }
 
-export async function profileRequest(): Promise<UserPublic | null> {
+export async function profileRequest(): Promise<UserProfile | null> {
   const data = await get({ endpoint: "/auth/profile" });
-  if (data && typeof data === "object" && "email" in data) {
-    return data as UserPublic;
+  if (
+    data &&
+    typeof data === "object" &&
+    "email" in data &&
+    "preferences" in data
+  ) {
+    return data as UserProfile;
   }
   return null;
 }
