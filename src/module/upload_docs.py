@@ -255,6 +255,7 @@ def ingest_uploaded_pdf_to_qdrant(
     documents = docling_pdf_extractor(
         file_path=str(resolved_path),
         artifacts_root=artifacts_root,
+        upload_mode=True,
     )
     _tag_uploaded_documents(
         documents,

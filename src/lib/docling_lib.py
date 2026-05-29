@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Callable
 from src.utils.time_utils import measure_time
@@ -119,6 +120,41 @@ def _replace_markdown_image_alt_texts(
 
 
 @measure_time
+def _extract_markdown_image_paths(markdown_text: str) -> list[str]:
+    return re.findall(
+        r"!\[[^\]]*\]\((?P<path>[^)\n]+)\)",
+        markdown_text,
+    )
+
+
+@measure_time
+def _normalize_markdown_image_paths(markdown_text: str) -> str:
+    """Rewrite image links to stable paths under the document's images/ folder."""
+
+    def _rewrite(match: re.Match[str]) -> str:
+        alt = match.group("alt")
+        image_name = Path(match.group("path")).name
+        return f"![{alt}](images/{image_name})"
+
+    return re.sub(
+        r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)\n]+)\)",
+        _rewrite,
+        markdown_text,
+    )
+
+
+def _cleanup_docling_export_junk(doc_dir: Path, doc_filename: str) -> None:
+    """Remove nested paths created by older Docling export defaults."""
+    legacy_artifacts_dir = doc_dir / f"{doc_filename}_artifacts"
+    if legacy_artifacts_dir.is_dir():
+        shutil.rmtree(legacy_artifacts_dir)
+
+    nested_data_dir = doc_dir / "data"
+    if nested_data_dir.is_dir():
+        shutil.rmtree(nested_data_dir)
+
+
+@measure_time
 def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options = PdfPipelineOptions()
     pdf_pipeline_options.generate_page_images = True
@@ -165,6 +201,7 @@ def docling_pdf_extractor(
     formula_transcriber: Callable[[Path, str], str] | None = None,
     chunk_size: int = 1800,
     chunk_overlap: int = 250,
+    upload_mode: bool = False,
 ) -> list[Document]:
     time_tracker: dict[str, float] = {}
     documents: list[Document] = []
@@ -176,21 +213,24 @@ def docling_pdf_extractor(
 
         doc_filename = conv_res.input.file.stem
         artifacts_root_path = Path(artifacts_root)
-        markdown_dir = artifacts_root_path / "markdown" / doc_filename
-        image_output_dir = artifacts_root_path / "images" / doc_filename
-        formula_output_dir = artifacts_root_path / "formulas" / doc_filename
-        markdown_dir.mkdir(parents=True, exist_ok=True)
-        image_output_dir.mkdir(parents=True, exist_ok=True)
+        doc_artifacts_dir = artifacts_root_path / doc_filename
+        formula_output_dir = doc_artifacts_dir / "formulas"
+        image_output_dir = doc_artifacts_dir / "images"
+        doc_artifacts_dir.mkdir(parents=True, exist_ok=True)
         formula_output_dir.mkdir(parents=True, exist_ok=True)
+        image_output_dir.mkdir(parents=True, exist_ok=True)
 
-        md_filename = markdown_dir / f"{doc_filename}.md"
+        md_filename = doc_artifacts_dir / f"{doc_filename}.md"
 
         with measure_time("markdown_export", tracker=time_tracker):
             conv_res.document.save_as_markdown(
                 md_filename,
+                artifacts_dir=Path("images"),
                 image_mode=ImageRefMode.REFERENCED,
             )
             full_markdown = md_filename.read_text(encoding="utf-8")
+            _cleanup_docling_export_junk(doc_artifacts_dir, doc_filename)
+            markdown_image_paths = _extract_markdown_image_paths(full_markdown)
         formula_placeholder_token = "<!-- formula-not-decoded -->"
         pending_placeholders = full_markdown.count(formula_placeholder_token)
 
@@ -265,20 +305,20 @@ def docling_pdf_extractor(
                 if not isinstance(element, PictureItem):
                     continue
 
-                picture_image = element.get_image(conv_res.document)
-                if picture_image is None:
+                if element.get_image(conv_res.document) is None:
                     continue
 
                 picture_counter += 1
+                if picture_counter > len(markdown_image_paths):
+                    break
+
                 with measure_time(
                     f"image_processing_{picture_counter}",
                     tracker=time_tracker,
                 ):
                     element_image_filename = (
-                        image_output_dir
-                        / f"{doc_filename}-picture-{picture_counter}.png"
+                        doc_artifacts_dir / markdown_image_paths[picture_counter - 1]
                     )
-                    picture_image.save(element_image_filename, "PNG")
 
                     caption = element.caption_text(conv_res.document).strip()
                     picture_description = ""
@@ -339,6 +379,7 @@ def docling_pdf_extractor(
 
         # Final formula cleanup applies to both markdown export and chunking source.
         full_markdown = _sanitize_markdown_formulas(full_markdown)
+        full_markdown = _normalize_markdown_image_paths(full_markdown)
         md_filename.write_text(full_markdown, encoding="utf-8")
 
         with measure_time("text_chunking", tracker=time_tracker):
