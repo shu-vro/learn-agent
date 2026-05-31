@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import insert, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,8 @@ from src.db.models.chunk import Chunk, documents_chunks
 from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
-from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
+from src.tasks.artifact_ingestion import process_artifact_upload
+from src.utils.ingestion_progress import get_ingestion_progress, set_ingestion_progress
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.api.artifact_markdown_fixer import rewrite_chunk_image_urls
 
@@ -37,6 +38,9 @@ class ArtifactRead(BaseModel):
     name: str
     chunks: Dict[str, Any] = {}
     ingestion_status: str = "completed"
+    ingestion_stage: str | None = None
+    ingestion_stage_label: str | None = None
+    ingestion_progress: int | None = None
 
 
 ArtifactsListResponse = BaseResponse[list[ArtifactRead]]
@@ -124,15 +128,7 @@ async def list_project_artifacts(
     docs = result.scalars().all()
     items: list[ArtifactRead] = []
     for doc in docs:
-        doc_chunks = await _get_document_chunks(doc.id, session)
-        items.append(
-            ArtifactRead(
-                id=doc.id,
-                name=doc.name,
-                chunks=_chunks_to_dict(doc_chunks, doc_sha256=doc.sha256),
-                ingestion_status=doc.ingestion_status,
-            )
-        )
+        items.append(await _artifact_read_for_document(doc, session))
     return ArtifactsListResponse.ok(data=items)
 
 
@@ -140,6 +136,64 @@ def _form_bool(value: str | None) -> bool | None:
     if value is None:
         return None
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def _artifact_read_for_document(
+    document: Document,
+    session: AsyncSession,
+) -> ArtifactRead:
+    chunks: dict[str, Any] = {}
+    if document.ingestion_status == "completed":
+        doc_chunks = await _get_document_chunks(document.id, session)
+        chunks = _chunks_to_dict(doc_chunks, doc_sha256=document.sha256)
+
+    progress = (
+        get_ingestion_progress(document.id)
+        if document.ingestion_status == "processing"
+        else None
+    )
+    return ArtifactRead(
+        id=document.id,
+        name=document.name,
+        chunks=chunks,
+        ingestion_status=document.ingestion_status,
+        ingestion_stage=progress.get("stage") if progress else None,
+        ingestion_stage_label=progress.get("label") if progress else None,
+        ingestion_progress=progress.get("progress") if progress else None,
+    )
+
+
+@router.get(
+    "/{project_id}/artifacts/{artifact_id}/ingestion-status",
+    response_model=ArtifactResponse,
+)
+async def get_artifact_ingestion_status(
+    request: Request,
+    project_id: str,
+    artifact_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> ArtifactResponse:
+    user = _require_user(request)
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt = (
+        select(Document)
+        .join(ProjectDocument, ProjectDocument.document_id == Document.id)
+        .where(
+            ProjectDocument.project_id == project_id,
+            Document.id == artifact_id,
+        )
+    )
+    result = await session.execute(stmt)
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return ArtifactResponse.ok(
+        data=await _artifact_read_for_document(document, session)
+    )
 
 
 @router.post("/{project_id}/artifacts", response_model=ArtifactResponse)
@@ -268,10 +322,9 @@ async def upload_project_artifact(
     recreate_collection = _form_bool(rebuild) or False
 
     try:
-        extraction_result = await asyncio.to_thread(
-            ingest_uploaded_pdf_to_qdrant,
-            file_path=dest,
+        process_artifact_upload.delay(
             document_id=document.id,
+            file_path=str(dest),
             project_id=project_id,
             original_url=source_file_url,
             collection_name=DEFAULT_QDRANT_COLLECTION,
@@ -281,45 +334,24 @@ async def upload_project_artifact(
             use_formula_transcription=ingestion.use_formula_transcription,
             recreate_collection=recreate_collection,
         )
-        extracted_documents = extraction_result["documents"]
-
-        for order, extracted in enumerate(extracted_documents):
-            chunk = Chunk(
-                content=extracted.page_content,
-                extra=dict(extracted.metadata or {}),
-            )
-            session.add(chunk)
-            await session.flush()
-            await session.execute(
-                insert(documents_chunks).values(
-                    document_id=document.id,
-                    chunks_id=chunk.id,
-                    order=order,
-                )
-            )
-        document.ingestion_status = "completed"
-        document.ingestion_error = None
-        await session.commit()
-        await session.refresh(document)
+        set_ingestion_progress(
+            document.id,
+            stage="queued",
+            label="Queued for processing",
+            progress=10,
+        )
     except Exception as err:
-        await session.rollback()
         document.ingestion_status = "failed"
         document.ingestion_error = str(err)[:1000]
         session.add(document)
         await session.commit()
         raise HTTPException(
-            status_code=500,
-            detail="Failed to process uploaded PDF.",
+            status_code=503,
+            detail="Failed to queue PDF for processing.",
         ) from err
 
-    doc_chunks = await _get_document_chunks(document.id, session)
     return ArtifactResponse.ok(
-        data=ArtifactRead(
-            id=document.id,
-            name=document.name,
-            chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
-            ingestion_status=document.ingestion_status,
-        )
+        data=await _artifact_read_for_document(document, session)
     )
 
 

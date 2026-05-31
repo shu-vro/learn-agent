@@ -72,19 +72,45 @@ export async function listArtifacts(
   return [];
 }
 
+export async function getArtifactIngestionStatus(
+  projectId: string,
+  artifactId: string,
+): Promise<Artifact | null> {
+  const res = await get({
+    endpoint: `/projects/${projectId}/artifacts/${artifactId}/ingestion-status`,
+  });
+  if (isArtifact(res)) {
+    return res;
+  }
+  return null;
+}
+
+export type UploadArtifactOptions = {
+  ingestion?: IngestionUploadOptions;
+  onUploadProgress?: (percent: number) => void;
+};
+
 export async function uploadArtifact(
   projectId: string,
   file: File,
-  ingestion?: IngestionUploadOptions,
+  options?: UploadArtifactOptions,
 ): Promise<Artifact | null> {
   const form = new FormData();
   form.append("file", file);
-  if (ingestion) {
-    appendIngestionToFormData(form, ingestion);
+  if (options?.ingestion) {
+    appendIngestionToFormData(form, options.ingestion);
   }
   const res = await post({
     endpoint: `/projects/${projectId}/artifacts`,
     params: form,
+    onUploadProgress: (event) => {
+      if (!options?.onUploadProgress || !event.total) {
+        return;
+      }
+      options.onUploadProgress(
+        Math.min(100, Math.round((event.loaded / event.total) * 100)),
+      );
+    },
   });
   if (isArtifact(res)) {
     return res;

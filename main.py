@@ -79,6 +79,16 @@ def _print_ingestion_summary(ingest_info: dict[str, Any]) -> None:
     print(f"Artifacts dir: {ingest_info['artifacts_root']}")
 
 
+def _run_celery_worker(*, log_level: str) -> None:
+    from src.lib.celery_lib import celery_app
+
+    pool = celery_app.conf.worker_pool or "prefork"
+    argv = ["worker", "--loglevel", log_level, "--pool", pool]
+    if pool != "solo":
+        argv.extend(["--concurrency", "1"])
+    celery_app.worker_main(argv=argv)
+
+
 def _run_api_server(*, host: str, port: int, workers: int, log_level: str) -> None:
     import uvicorn
 
@@ -219,6 +229,17 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="Uvicorn log level.",
     )
 
+    worker_parser = subparsers.add_parser(
+        "worker",
+        help="Run the Celery worker for background artifact ingestion.",
+    )
+    worker_parser.add_argument(
+        "--log-level",
+        choices=("critical", "error", "warning", "info", "debug", "trace"),
+        default="info",
+        help="Celery log level.",
+    )
+
     for command_parser in (ingest_parser, ask_parser, chat_parser):
         command_parser.add_argument(
             "--no-vision",
@@ -263,6 +284,10 @@ def main() -> None:
                 log_level=args.log_level,
             )
 
+            return
+
+        if args.command == "worker":
+            _run_celery_worker(log_level=args.log_level)
             return
 
         from src.agent.rag_agent import RagAppConfig, answer_question, interactive_chat

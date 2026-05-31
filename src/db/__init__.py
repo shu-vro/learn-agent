@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import AsyncIterator
 from urllib.parse import quote_plus
 
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import sessionmaker
 from src.config.env import (
     DATABASE_HOST,
     DATABASE_NAME,
@@ -42,6 +45,8 @@ __all__ = [
     "engine",
     "session_factory",
     "get_session",
+    "sync_engine",
+    "sync_session_factory",
     "create_all_tables",
     "CONN_URL",
     "ASYNC_CONN_URL",
@@ -87,6 +92,20 @@ def engine() -> AsyncEngine:
 def session_factory() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(
         bind=engine(),
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+
+@lru_cache(maxsize=1)
+def sync_engine() -> Engine:
+    return create_engine(CONN_URL, pool_pre_ping=True)
+
+
+@lru_cache(maxsize=1)
+def sync_session_factory() -> sessionmaker:
+    return sessionmaker(
+        bind=sync_engine(),
         expire_on_commit=False,
         autoflush=False,
     )

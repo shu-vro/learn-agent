@@ -18,6 +18,10 @@ export type ArtifactSeed = {
   name: string;
   chunks: Record<string, string>;
   ingestion_status?: string;
+  upload_progress?: number;
+  ingestion_stage?: string;
+  ingestion_stage_label?: string;
+  ingestion_progress?: number;
 };
 
 export const SEED_PROJECTS: ProjectSeed[] = [

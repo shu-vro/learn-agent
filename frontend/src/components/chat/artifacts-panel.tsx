@@ -13,6 +13,10 @@ import {
   defaultIngestionPreferences,
   useAuth,
 } from "@/components/auth/auth-provider";
+import {
+  ArtifactProgress,
+  isArtifactInProgress,
+} from "@/components/chat/artifact-progress";
 import { useChatWorkspace } from "@/components/chat/chat-context";
 import {
   IngestionSettingsFields,
@@ -33,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
 import { cn } from "@/lib/utils";
 
@@ -78,8 +83,12 @@ export function ArtifactsPanel({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { preferences } = useAuth();
-  const { artifacts, selectedArtifactId, addArtifactFromFile } =
-    useChatWorkspace();
+  const {
+    artifacts,
+    selectedArtifactId,
+    setSelectedArtifactId,
+    addArtifactFromFile,
+  } = useChatWorkspace();
 
   const [ingestionSettings, setIngestionSettings] =
     useState<IngestionSettingsValue>(() => ({
@@ -97,8 +106,19 @@ export function ArtifactsPanel({
   }, [preferences]);
 
   const selected = artifacts.find((a) => a.id === selectedArtifactId) ?? null;
+  const uploadingArtifact =
+    artifacts.find((artifact) => artifact.ingestion_status === "uploading") ??
+    null;
+  const isUploading = uploadingArtifact !== null;
+  const isIngesting = selected?.ingestion_status === "processing";
   const [previewOpen, setPreviewOpen] = useState(false);
   const showIngestionSettings = Boolean(projectId);
+
+  useEffect(() => {
+    if (isIngesting || isUploading) {
+      setPreviewOpen(true);
+    }
+  }, [isIngesting, isUploading]);
 
   const processFiles = useCallback(
     async (files: FileList | File[] | null | undefined) => {
@@ -109,11 +129,14 @@ export function ArtifactsPanel({
       const options = showIngestionSettings
         ? toUploadOptions(ingestionSettings)
         : undefined;
-      for (const file of list) {
-        await addArtifactFromFile(file, options);
-      }
-      if (inputRef.current) {
-        inputRef.current.value = "";
+      try {
+        for (const file of list) {
+          await addArtifactFromFile(file, options);
+        }
+      } finally {
+        if (inputRef.current) {
+          inputRef.current.value = "";
+        }
       }
     },
     [addArtifactFromFile, ingestionSettings, showIngestionSettings],
@@ -153,17 +176,28 @@ export function ArtifactsPanel({
               setUploadOpen(false);
             }}
           >
-            <UploadIcon className="size-8 text-muted-foreground" />
-            <p className="text-muted-foreground text-sm">
-              Drop PDF or Markdown files to upload
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => inputRef.current?.click()}
-            >
-              Select files
-            </Button>
+            {isUploading && uploadingArtifact ? (
+              <div className="flex w-full max-w-xs flex-col gap-3">
+                <p className="truncate text-muted-foreground text-sm">
+                  {uploadingArtifact.name}
+                </p>
+                <ArtifactProgress artifact={uploadingArtifact} />
+              </div>
+            ) : (
+              <>
+                <UploadIcon className="size-8 text-muted-foreground" />
+                <p className="text-muted-foreground text-sm">
+                  Drop PDF or Markdown files to upload
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => inputRef.current?.click()}
+                >
+                  Select files
+                </Button>
+              </>
+            )}
           </section>
         </DialogContent>
       </Dialog>
@@ -230,47 +264,106 @@ export function ArtifactsPanel({
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 p-3">
-        {selected ? (
-          <Artifact className="border-border/40 bg-background/60">
-            <Collapsible
-              className="flex min-h-0 flex-col"
-              onOpenChange={setPreviewOpen}
-              open={previewOpen}
-            >
-              <ArtifactHeader className="border-border/40 bg-transparent p-0">
-                <CollapsibleTrigger
-                  aria-expanded={previewOpen}
-                  aria-label={`${previewOpen ? "Collapse" : "Expand"} preview: ${selected.name}`}
-                  className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-muted/40"
-                >
-                  <ChevronDownIcon
-                    aria-hidden
-                    className={cn(
-                      "size-4 shrink-0 text-muted-foreground transition-transform",
-                      previewOpen && "rotate-180",
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-col gap-2 p-2">
+          {artifacts.length === 0 ? (
+            <p className="px-2 py-3 text-muted-foreground text-sm">
+              Upload a file to get started.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {artifacts.map((artifact) => {
+                const isSelected = artifact.id === selectedArtifactId;
+                const inProgress = isArtifactInProgress(artifact);
+                const isFailed = artifact.ingestion_status === "failed";
+                return (
+                  <li key={artifact.id} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedArtifactId(artifact.id)}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
+                        isSelected
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {artifact.name}
+                      </span>
+                      {inProgress ? (
+                        <Spinner className="size-3.5 shrink-0" />
+                      ) : null}
+                      {isFailed ? (
+                        <span className="shrink-0 text-destructive text-xs">
+                          Failed
+                        </span>
+                      ) : null}
+                    </button>
+                    {inProgress ? (
+                      <div className="px-3 pb-1">
+                        <ArtifactProgress artifact={artifact} />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {selected ? (
+            <Artifact className="border-border/40 bg-background/60">
+              <Collapsible
+                className="flex min-h-0 flex-col"
+                onOpenChange={setPreviewOpen}
+                open={previewOpen}
+              >
+                <ArtifactHeader className="border-border/40 bg-transparent p-0">
+                  <CollapsibleTrigger
+                    aria-expanded={previewOpen}
+                    aria-label={`${previewOpen ? "Collapse" : "Expand"} preview: ${selected.name}`}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-muted/40"
+                  >
+                    <ChevronDownIcon
+                      aria-hidden
+                      className={cn(
+                        "size-4 shrink-0 text-muted-foreground transition-transform",
+                        previewOpen && "rotate-180",
+                      )}
+                    />
+                    <ArtifactTitle className="min-w-0 flex-1 truncate border-0 py-0">
+                      Preview
+                    </ArtifactTitle>
+                    {isIngesting ? (
+                      <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                    ) : null}
+                  </CollapsibleTrigger>
+                </ArtifactHeader>
+                <CollapsibleContent className="min-h-0 overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
+                  <div className="max-h-[calc(100vh-16rem)] overflow-auto px-4 pb-4">
+                    {isIngesting ? (
+                      <div className="space-y-3 py-2">
+                        <ArtifactProgress artifact={selected} />
+                        <p className="text-muted-foreground text-sm">
+                          You can close this panel or refresh the page —
+                          processing continues in the background.
+                        </p>
+                      </div>
+                    ) : selected.ingestion_status === "uploading" ? (
+                      <div className="py-2">
+                        <ArtifactProgress artifact={selected} />
+                      </div>
+                    ) : (
+                      <MessageResponse className="text-sm">
+                        {artifactPreviewMarkdown(selected)}
+                      </MessageResponse>
                     )}
-                  />
-                  <ArtifactTitle className="min-w-0 flex-1 truncate border-0 py-0">
-                    {selected.name}
-                  </ArtifactTitle>
-                </CollapsibleTrigger>
-              </ArtifactHeader>
-              <CollapsibleContent className="min-h-0 overflow-hidden data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
-                <div className="max-h-[calc(100vh-12rem)] overflow-auto px-4 pb-4">
-                  <MessageResponse className="text-sm">
-                    {artifactPreviewMarkdown(selected)}
-                  </MessageResponse>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          </Artifact>
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            Upload a file, then open the preview from the file header when you
-            need it.
-          </p>
-        )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </Artifact>
+          ) : null}
+        </div>
       </ScrollArea>
     </div>
   );

@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -14,6 +15,7 @@ import {
   type Artifact,
   type ChatMessage,
   createLocalArtifact,
+  getArtifactIngestionStatus,
   listArtifacts,
   listMessages,
   listThreads,
@@ -99,6 +101,66 @@ export function ChatWorkspaceProvider({
     };
   }, [projectId]);
 
+  const processingArtifactIdsRef = useRef<string[]>([]);
+  const processingArtifactKey = useMemo(() => {
+    const ids = artifacts
+      .filter((artifact) => artifact.ingestion_status === "processing")
+      .map((artifact) => artifact.id)
+      .sort();
+    processingArtifactIdsRef.current = ids;
+    return ids.join(",");
+  }, [artifacts]);
+
+  useEffect(() => {
+    if (!projectId || !processingArtifactKey) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      for (const artifactId of processingArtifactIdsRef.current) {
+        if (cancelled) {
+          return;
+        }
+        const updated = await getArtifactIngestionStatus(projectId, artifactId);
+        if (!updated || cancelled) {
+          continue;
+        }
+        setArtifacts((prev) => {
+          const existing = prev.find((artifact) => artifact.id === updated.id);
+          if (!existing) {
+            return prev;
+          }
+          if (
+            existing.ingestion_status === updated.ingestion_status &&
+            existing.name === updated.name &&
+            existing.ingestion_stage === updated.ingestion_stage &&
+            existing.ingestion_stage_label === updated.ingestion_stage_label &&
+            existing.ingestion_progress === updated.ingestion_progress &&
+            Object.keys(existing.chunks).length ===
+              Object.keys(updated.chunks).length
+          ) {
+            return prev;
+          }
+          return prev.map((artifact) =>
+            artifact.id === updated.id ? updated : artifact,
+          );
+        });
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [projectId, processingArtifactKey]);
+
   const messages = messagesByThread[activeThreadId] ?? [];
 
   const appendUserMessage = useCallback(
@@ -140,10 +202,73 @@ export function ChatWorkspaceProvider({
   const addArtifactFromFile = useCallback(
     async (file: File, ingestion?: IngestionUploadOptions) => {
       if (projectId) {
-        const created = await uploadArtifact(projectId, file, ingestion);
-        if (created) {
-          setArtifacts((prev) => [...prev, created]);
-          setSelectedArtifactId(created.id);
+        const tempId = `upload-${nanoid()}`;
+        setArtifacts((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            name: file.name,
+            chunks: {},
+            ingestion_status: "uploading",
+            upload_progress: 0,
+          },
+        ]);
+        setSelectedArtifactId(tempId);
+
+        try {
+          const created = await uploadArtifact(projectId, file, {
+            ingestion,
+            onUploadProgress: (percent) => {
+              setArtifacts((prev) =>
+                prev.map((artifact) =>
+                  artifact.id === tempId
+                    ? { ...artifact, upload_progress: percent }
+                    : artifact,
+                ),
+              );
+            },
+          });
+          if (created) {
+            setArtifacts((prev) => {
+              const withoutTemp = prev.filter(
+                (artifact) => artifact.id !== tempId,
+              );
+              const existingIndex = withoutTemp.findIndex(
+                (artifact) => artifact.id === created.id,
+              );
+              if (existingIndex >= 0) {
+                return withoutTemp.map((artifact) =>
+                  artifact.id === created.id ? created : artifact,
+                );
+              }
+              return [...withoutTemp, created];
+            });
+            setSelectedArtifactId(created.id);
+          } else {
+            setArtifacts((prev) =>
+              prev.map((artifact) =>
+                artifact.id === tempId
+                  ? {
+                      ...artifact,
+                      ingestion_status: "failed",
+                      upload_progress: undefined,
+                    }
+                  : artifact,
+              ),
+            );
+          }
+        } catch {
+          setArtifacts((prev) =>
+            prev.map((artifact) =>
+              artifact.id === tempId
+                ? {
+                    ...artifact,
+                    ingestion_status: "failed",
+                    upload_progress: undefined,
+                  }
+                : artifact,
+            ),
+          );
         }
         return;
       }

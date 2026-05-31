@@ -13,4 +13,4 @@
      - [x] react-mosaic for tiling
    - [x] use fastapi for backend.
 
-8. [ ] artifact ingestion is a long running task, so we need to introduce a queue system to handle it.
+8. [x] artifact ingestion is a long running task, so we need to introduce a queue system to handle it.

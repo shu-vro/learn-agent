@@ -9,6 +9,7 @@ type RequestOptions = {
   version?: string;
   baseUrl?: string;
   overrideEncryptedResponsesOnly?: boolean;
+  onUploadProgress?: (progress: { loaded: number; total?: number }) => void;
 };
 
 function isSuccessPayload(data: unknown): boolean {
@@ -37,6 +38,7 @@ const request = async (
     version = "v1",
     baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "",
     overrideEncryptedResponsesOnly: _unusedOverride = false,
+    onUploadProgress,
   }: RequestOptions,
 ) => {
   const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
@@ -60,6 +62,7 @@ const request = async (
       data: requestPayload,
       params: method === "get" ? params : undefined,
       withCredentials: true,
+      onUploadProgress,
     });
 
     const body = response.data;
@@ -131,6 +134,7 @@ export const post = async ({
   version = "v1",
   baseUrl,
   overrideEncryptedResponsesOnly = false,
+  onUploadProgress,
 }: Partial<RequestOptions>) => {
   return await request("post", {
     endpoint,
@@ -141,6 +145,7 @@ export const post = async ({
     version,
     baseUrl,
     overrideEncryptedResponsesOnly,
+    onUploadProgress,
   });
 };
 
