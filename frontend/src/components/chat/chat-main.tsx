@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { FormEvent } from "react";
 import {
   Conversation,
@@ -13,8 +14,20 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { useChatWorkspace } from "@/components/chat/chat-context";
-import { ChatPrompt } from "@/components/chat/chat-prompt";
 import { cn } from "@/lib/utils";
+
+const ChatPrompt = dynamic(
+  () =>
+    import("@/components/chat/chat-prompt").then((m) => ({
+      default: m.ChatPrompt,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-24 animate-pulse rounded-xl bg-muted/40" />
+    ),
+  },
+);
 
 export function ChatMain({ className }: { className?: string }) {
   const { messages, appendUserMessage } = useChatWorkspace();

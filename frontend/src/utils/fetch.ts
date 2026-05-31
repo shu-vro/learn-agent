@@ -79,13 +79,22 @@ const request = async (
   } catch (error: unknown) {
     const err = error as {
       message?: string;
-      response?: { data?: unknown; headers?: Record<string, string> };
+      response?: {
+        status?: number;
+        data?: unknown;
+        headers?: Record<string, string>;
+      };
     };
     if (throwable) {
       throw error;
     }
+    // Avoid logging full Axios stacks on every 404 — Next dev forwards browser
+    // console output and repeated errors contribute to runaway memory use.
     if (process.env.NODE_ENV === "development") {
-      console.error("Error fetching data:", err.message, error);
+      const status = err.response?.status;
+      if (status !== 404) {
+        console.warn(`API ${method.toUpperCase()} ${url} failed:`, err.message);
+      }
     }
     return err?.response?.data ?? null;
   }

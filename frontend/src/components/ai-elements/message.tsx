@@ -1,5 +1,16 @@
 "use client";
 
+import type { UIMessage } from "ai";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group";
 import {
@@ -9,23 +20,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
-import type { UIMessage } from "ai";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
-import {
-  createContext,
-  memo,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import { Streamdown } from "streamdown";
+
+export type { MessageResponseProps } from "@/components/ai-elements/message-response";
+export { MessageResponse } from "@/components/ai-elements/message-response";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -56,7 +53,8 @@ export const MessageContent = ({
       "group-[.is-assistant]:text-foreground",
       className,
     )}
-    {...props}>
+    {...props}
+  >
     {children}
   </div>
 );
@@ -216,7 +214,8 @@ export const MessageBranchContent = ({
         index === currentBranch ? "block" : "hidden",
       )}
       key={branch.key}
-      {...props}>
+      {...props}
+    >
       {branch}
     </div>
   ));
@@ -263,7 +262,8 @@ export const MessageBranchPrevious = ({
       size="icon-sm"
       type="button"
       variant="ghost"
-      {...props}>
+      {...props}
+    >
       {children ?? <ChevronLeftIcon size={14} />}
     </Button>
   );
@@ -285,7 +285,8 @@ export const MessageBranchNext = ({
       size="icon-sm"
       type="button"
       variant="ghost"
-      {...props}>
+      {...props}
+    >
       {children ?? <ChevronRightIcon size={14} />}
     </Button>
   );
@@ -305,33 +306,12 @@ export const MessageBranchPage = ({
         "border-none bg-transparent text-muted-foreground shadow-none",
         className,
       )}
-      {...props}>
+      {...props}
+    >
       {currentBranch + 1} of {totalBranches}
     </ButtonGroupText>
   );
 };
-
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
-
-const streamdownPlugins = { cjk, code, math, mermaid };
-
-export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        className,
-      )}
-      plugins={streamdownPlugins}
-      {...props}
-    />
-  ),
-  (prevProps, nextProps) =>
-    prevProps.children === nextProps.children &&
-    nextProps.isAnimating === prevProps.isAnimating,
-);
-
-MessageResponse.displayName = "MessageResponse";
 
 export type MessageToolbarProps = ComponentProps<"div">;
 
@@ -345,7 +325,8 @@ export const MessageToolbar = ({
       "mt-4 flex w-full items-center justify-between gap-4",
       className,
     )}
-    {...props}>
+    {...props}
+  >
     {children}
   </div>
 );
