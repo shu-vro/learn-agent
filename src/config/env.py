@@ -49,3 +49,8 @@ AWS_CLOUDFRONT_PUBLIC_KEY_ID = os.environ.get(
 AWS_CLOUDFRONT_PRIVATE_KEY_PATH = os.environ.get(
     "AWS_CLOUDFRONT_PRIVATE_KEY_PATH", "private_key.pem"
 )
+
+# Redis
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
