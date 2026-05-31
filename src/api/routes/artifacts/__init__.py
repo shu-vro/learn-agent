@@ -18,7 +18,12 @@ from src.db.models.preferences import Preferences
 from src.schemas.preferences import UserPreferencesPublic, resolve_ingestion_flags
 from src.config.env import ASSET_UPLOAD_ROOT
 from src.db import get_session
-from src.db.models.chunk import Chunk, documents_chunks
+from src.db.models.chunk import (
+    Chunk,
+    coalesced_chunk_type,
+    DEFAULT_CHUNK_TYPE,
+    documents_chunks,
+)
 from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
@@ -62,25 +67,33 @@ def _sanitize_stored_filename(filename: str) -> str:
 async def _get_document_chunks(
     document_id: str,
     session: AsyncSession,
-) -> list[Chunk]:
+) -> list[tuple[Chunk, int]]:
+    """Just fetches chunks from document."""
     stmt = (
-        select(Chunk)
+        select(Chunk, documents_chunks.c.order)
         .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
         .where(
             documents_chunks.c.document_id == document_id,
-            Chunk.extra["type"].as_string() == "text_chunk",
+            coalesced_chunk_type() == DEFAULT_CHUNK_TYPE,
         )
         .order_by(documents_chunks.c.order.asc())
     )
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return list(result.all())
 
 
-def _chunks_to_dict(chunks: list[Chunk], *, doc_sha256: str | None) -> Dict[str, Any]:
-    return {
-        chunk.id: rewrite_chunk_image_urls(chunk.content, doc_sha256)
-        for chunk in chunks
-    }
+def _chunks_to_dict(
+    chunks: list[tuple[Chunk, int]],
+    *,
+    doc_sha256: str | None,
+) -> Dict[str, Any]:
+    ordered: Dict[str, Any] = {}
+    for chunk, order in chunks:
+        ordered[chunk.id] = {
+            "content": rewrite_chunk_image_urls(chunk.content, doc_sha256),
+            "order": order,
+        }
+    return ordered
 
 
 def _require_user(request: Request):

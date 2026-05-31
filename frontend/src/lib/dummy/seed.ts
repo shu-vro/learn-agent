@@ -13,10 +13,15 @@ export type ChatMessageSeed = {
   content: string;
 };
 
+export type ArtifactChunkEntry = {
+  content: string;
+  order: number;
+};
+
 export type ArtifactSeed = {
   id: string;
   name: string;
-  chunks: Record<string, string>;
+  chunks: Record<string, ArtifactChunkEntry | string>;
   ingestion_status?: string;
   upload_progress?: number;
   ingestion_stage?: string;
@@ -92,8 +97,11 @@ export const SEED_ARTIFACTS: ArtifactSeed[] = [
     id: "a-1",
     name: "README.md",
     chunks: {
-      "seed-1":
-        "# Sample artifact\n\nThis preview uses the same **Streamdown** renderer as chat messages.",
+      "seed-1": {
+        content:
+          "# Sample artifact\n\nThis preview uses the same **Streamdown** renderer as chat messages.",
+        order: 0,
+      },
     },
     ingestion_status: "completed",
   },

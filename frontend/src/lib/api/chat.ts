@@ -122,7 +122,7 @@ export function createLocalArtifact(name: string, text: string): Artifact {
   return {
     id: nanoid(),
     name,
-    chunks: { [nanoid()]: text },
+    chunks: { [nanoid()]: { content: text, order: 0 } },
     ingestion_status: "completed",
   };
 }

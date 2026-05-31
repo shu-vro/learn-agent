@@ -8,7 +8,11 @@ from sqlalchemy import insert
 
 from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
 from src.db import sync_session_factory
-from src.db.models.chunk import Chunk, documents_chunks
+from src.db.models.chunk import (
+    Chunk,
+    documents_chunks,
+    DEFAULT_CHUNK_TYPE,
+)
 from src.db.models.document import Document
 from src.lib.celery_lib import celery_app
 from src.utils.ingestion_progress import (
@@ -16,6 +20,31 @@ from src.utils.ingestion_progress import (
     set_ingestion_progress,
 )
 from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
+
+
+def _resolve_chunk_type(
+    metadata: dict | None,
+    *,
+    fallback: str = DEFAULT_CHUNK_TYPE,
+) -> str:
+    """Parses chunk type from extra."""
+    if metadata:
+        raw = metadata.get("type")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return fallback
+
+
+def _chunk_extra_with_type(
+    metadata: dict | None,
+    *,
+    chunk_type: str | None = None,
+) -> dict:
+    """Adds chunk type to extra."""
+    extra = dict(metadata or {})
+    resolved = chunk_type or _resolve_chunk_type(extra)
+    extra["type"] = resolved
+    return extra
 
 
 def _mark_document_failed(document_id: str, error: str) -> None:
@@ -109,9 +138,12 @@ def process_artifact_upload(
         )
 
         for order, extracted in enumerate(extracted_documents):
+            metadata = dict(extracted.metadata or {})
+            chunk_type = _resolve_chunk_type(metadata)
             chunk = Chunk(
                 content=extracted.page_content,
-                extra=dict(extracted.metadata or {}),
+                type=chunk_type,
+                extra=_chunk_extra_with_type(metadata, chunk_type=chunk_type),
             )
             session.add(chunk)
             session.flush()

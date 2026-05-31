@@ -39,13 +39,17 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
+import {
+  type ArtifactChunks,
+  artifactChunksToMarkdown,
+} from "@/lib/artifact-chunks";
 import { cn } from "@/lib/utils";
 
 function artifactPreviewMarkdown(artifact: {
-  chunks: Record<string, string>;
+  chunks: ArtifactChunks;
   ingestion_status?: string;
 }): string {
-  const text = Object.values(artifact.chunks).join("\n\n");
+  const text = artifactChunksToMarkdown(artifact.chunks);
   if (text) {
     return text;
   }

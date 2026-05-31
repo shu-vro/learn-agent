@@ -21,7 +21,6 @@ function isProjectList(value: unknown): value is Project[] {
 
 export async function listProjects(): Promise<Project[]> {
   const res = await get({ endpoint: "/projects" });
-  console.log(res);
   if (isProjectList(res)) {
     return res;
   }
