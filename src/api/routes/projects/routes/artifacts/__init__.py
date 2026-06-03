@@ -40,7 +40,7 @@ from src.utils.api.artifact_markdown_fixer import rewrite_chunk_image_urls
 ALLOWED_SUFFIXES = frozenset[str]({".pdf"})
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
-router = APIRouter(prefix="/projects", tags=["artifacts"])
+router = APIRouter(tags=["artifacts"])
 
 
 class ArtifactRead(BaseModel):

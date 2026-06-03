@@ -8,6 +8,7 @@ from src.db.models.project_document import ProjectDocument
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.db.read_schema import read_schema_for_orm_columns
 from pydantic import BaseModel, Field
+from src.api.routes.projects.routes.artifacts import router as artifacts_router
 
 # Pydantic shape is derived from ``Project`` columns — add DB fields only there.
 ProjectRead = read_schema_for_orm_columns(Project, name="ProjectRead")
@@ -98,3 +99,6 @@ async def delete_project(
     await session.delete(project)
     await session.commit()
     return BaseResponse.ok()
+
+
+router.include_router(artifacts_router)

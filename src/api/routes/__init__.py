@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends
 from src.api.routes.auth import router as auth_router
 from src.api.routes.chat import router as chat_router
 from src.api.routes.projects import router as projects_router
-from src.api.routes.artifacts import router as artifacts_router
 from src.api.routes.config import router as config_router
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.api.jwt import try_get_current_user
@@ -38,9 +37,6 @@ router.include_router(
 )
 router.include_router(
     projects_router, prefix="/v1", dependencies=[Depends(try_get_current_user)]
-)
-router.include_router(
-    artifacts_router, prefix="/v1", dependencies=[Depends(try_get_current_user)]
 )
 
 __all__ = ["router"]
