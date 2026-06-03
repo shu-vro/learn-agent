@@ -15,11 +15,14 @@ import {
   type Artifact,
   type ChatMessage,
   createLocalArtifact,
+  createThread as createThreadRemote,
+  deleteThread as deleteThreadRemote,
   getArtifactIngestionStatus,
   listArtifacts,
   listMessages,
   listThreads,
   type Thread,
+  updateThread as updateThreadRemote,
   uploadArtifacts,
 } from "@/lib/api/chat";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
@@ -31,6 +34,8 @@ type ChatWorkspaceValue = {
   messages: ChatMessage[];
   appendUserMessage: (text: string) => void;
   newThread: () => void;
+  renameThread: (threadId: string, name: string) => Promise<void>;
+  deleteThread: (threadId: string) => Promise<void>;
   artifacts: Artifact[];
   selectedArtifactId: string | null;
   setSelectedArtifactId: (id: string | null) => void;
@@ -196,13 +201,88 @@ export function ChatWorkspaceProvider({
     [activeThreadId],
   );
 
-  const newThread = useCallback(() => {
+  const newThread = useCallback(async () => {
+    if (projectId) {
+      try {
+        const created = await createThreadRemote(projectId);
+        if (!created) {
+          return;
+        }
+        setThreads((prev) => [...prev, created]);
+        setMessagesByThread((prev) => ({ ...prev, [created.id]: [] }));
+        setActiveThreadId(created.id);
+      } catch {
+        // best-effort
+      }
+      return;
+    }
     const id = nanoid();
-    const title = "New thread";
-    setThreads((prev) => [...prev, { id, title }]);
+    const now = new Date();
+    const thread: Thread = {
+      id,
+      thread_name: "",
+      extra: {},
+      created_at: now,
+      updated_at: now,
+    };
+    setThreads((prev) => [...prev, thread]);
     setMessagesByThread((prev) => ({ ...prev, [id]: [] }));
     setActiveThreadId(id);
-  }, []);
+  }, [projectId]);
+
+  const renameThread = useCallback(
+    async (threadId: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return;
+      }
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === threadId ? { ...t, thread_name: trimmed } : t,
+        ),
+      );
+      if (!projectId) {
+        return;
+      }
+      try {
+        const updated = await updateThreadRemote(projectId, threadId, trimmed);
+        if (updated) {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === threadId ? updated : t)),
+          );
+        }
+      } catch {
+        // best-effort: keep optimistic name
+      }
+    },
+    [projectId],
+  );
+
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      setThreads((prev) => {
+        const next = prev.filter((t) => t.id !== threadId);
+        setActiveThreadId((active) =>
+          active === threadId ? (next[0]?.id ?? "") : active,
+        );
+        return next;
+      });
+      setMessagesByThread((prev) => {
+        const next = { ...prev };
+        delete next[threadId];
+        return next;
+      });
+      if (!projectId) {
+        return;
+      }
+      try {
+        await deleteThreadRemote(projectId, threadId);
+      } catch {
+        // best-effort
+      }
+    },
+    [projectId],
+  );
 
   const addArtifactsFromFiles = useCallback(
     async (files: File[], ingestion?: IngestionUploadOptions) => {
@@ -336,6 +416,8 @@ export function ChatWorkspaceProvider({
       messages,
       appendUserMessage,
       newThread,
+      renameThread,
+      deleteThread,
       artifacts,
       selectedArtifactId,
       setSelectedArtifactId,
@@ -349,6 +431,8 @@ export function ChatWorkspaceProvider({
       messages,
       appendUserMessage,
       newThread,
+      renameThread,
+      deleteThread,
       artifacts,
       selectedArtifactId,
       addArtifactFromFile,

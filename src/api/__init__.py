@@ -2,10 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config.env import CORS_ALLOW_ORIGINS
 from src.config.constants import ENVIRONMENT
+from src.utils.api.exception_handlers import register_exception_handlers
 
 
 def create_api() -> FastAPI:
     app = FastAPI(title="RAG Agent API", version="1.0")
+    register_exception_handlers(app)
 
     # Import and include your API routes here
     from src.api.routes import router as api_router

@@ -10,7 +10,7 @@ import {
   SEED_THREADS,
   type ThreadSeed,
 } from "@/lib/dummy/seed";
-import { del, get, post } from "@/utils/fetch";
+import { del, get, patch, post } from "@/utils/fetch";
 
 export type Thread = ThreadSeed;
 export type ChatMessage = ChatMessageSeed;
@@ -28,23 +28,83 @@ function isArtifact(value: unknown): value is Artifact {
   );
 }
 
+function isThread(value: unknown): value is Thread {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "id" in value &&
+    "thread_name" in value &&
+    "extra" in value &&
+    typeof (value as Thread).extra === "object" &&
+    (value as Thread).extra !== null &&
+    "created_at" in value &&
+    typeof (value as Thread).created_at === "string" &&
+    "updated_at" in value &&
+    typeof (value as Thread).updated_at === "string"
+  );
+}
 function isArtifactList(value: unknown): value is Artifact[] {
   return Array.isArray(value) && value.every(isArtifact);
 }
 
+function isThreadList(value: unknown): value is Thread[] {
+  return Array.isArray(value) && value.every(isThread);
+}
+
+export function threadDisplayName(thread: Thread): string {
+  const name = thread.thread_name.trim();
+  return name || "New thread";
+}
+
 export async function listThreads(
-  _projectId?: string | null,
+  projectId: string | null | undefined,
 ): Promise<Thread[]> {
-  const res = await get({ endpoint: "/threads" });
-  if (
-    Array.isArray(res) &&
-    res.length &&
-    typeof res[0] === "object" &&
-    "title" in res[0]
-  ) {
-    return res as Thread[];
+  if (!projectId) {
+    return [...SEED_THREADS];
+  }
+  const res = await get({ endpoint: `/projects/${projectId}/threads` });
+  if (isThreadList(res)) {
+    return res;
   }
   return [...SEED_THREADS];
+}
+
+export async function createThread(projectId: string): Promise<Thread | null> {
+  const res = await post({
+    endpoint: `/projects/${projectId}/threads`,
+    throwable: true,
+  });
+  if (isThread(res)) {
+    return res;
+  }
+  return null;
+}
+
+export async function updateThread(
+  projectId: string,
+  threadId: string,
+  threadName: string,
+): Promise<Thread | null> {
+  const res = await patch({
+    endpoint: `/projects/${projectId}/threads/${threadId}`,
+    params: { thread_name: threadName.trim() },
+    throwable: true,
+  });
+  if (isThread(res)) {
+    return res;
+  }
+  return null;
+}
+
+export async function deleteThread(
+  projectId: string,
+  threadId: string,
+): Promise<boolean> {
+  await del({
+    endpoint: `/projects/${projectId}/threads/${threadId}`,
+    throwable: true,
+  });
+  return true;
 }
 
 export async function listMessages(threadId: string): Promise<ChatMessage[]> {

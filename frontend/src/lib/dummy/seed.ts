@@ -5,7 +5,13 @@ export type ProjectSeed = {
   extra: Record<string, any>;
 };
 
-export type ThreadSeed = { id: string; title: string };
+export type ThreadSeed = {
+  id: string;
+  thread_name: string;
+  extra: Record<string, any>;
+  created_at: Date;
+  updated_at: Date;
+};
 
 export type ChatMessageSeed = {
   id: string;
@@ -45,9 +51,27 @@ export const SEED_PROJECTS: ProjectSeed[] = [
 ];
 
 export const SEED_THREADS: ThreadSeed[] = [
-  { id: "t-1", title: "Getting started" },
-  { id: "t-2", title: "API design questions" },
-  { id: "t-3", title: "Markdown sample" },
+  {
+    id: "t-1",
+    thread_name: "Getting started",
+    extra: {},
+    created_at: new Date(),
+    updated_at: new Date(),
+  },
+  {
+    id: "t-2",
+    thread_name: "API design questions",
+    extra: {},
+    created_at: new Date(),
+    updated_at: new Date(),
+  },
+  {
+    id: "t-3",
+    thread_name: "Markdown sample",
+    extra: {},
+    created_at: new Date(),
+    updated_at: new Date(),
+  },
 ];
 
 export const SEED_MESSAGES_BY_THREAD: Record<string, ChatMessageSeed[]> = {

@@ -9,6 +9,7 @@ from src.utils.api.BaseResponse import BaseResponse
 from src.utils.db.read_schema import read_schema_for_orm_columns
 from pydantic import BaseModel, Field
 from src.api.routes.projects.routes.artifacts import router as artifacts_router
+from src.api.routes.projects.routes.threads import router as threads_router
 
 # Pydantic shape is derived from ``Project`` columns — add DB fields only there.
 ProjectRead = read_schema_for_orm_columns(Project, name="ProjectRead")
@@ -25,6 +26,7 @@ async def get_projects(
     user = request.state.user
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
     projects = await Project.get_by_user_id(session, user.id)
     payload = [ProjectRead.model_validate(p) for p in projects]
     return ProjectsResponse.ok(data=payload)
@@ -102,3 +104,4 @@ async def delete_project(
 
 
 router.include_router(artifacts_router)
+router.include_router(threads_router)
