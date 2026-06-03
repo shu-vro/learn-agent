@@ -7,10 +7,18 @@
      3. check if the hash exists in qdrant. if it does, skip ingestion. if not, ingest and for now, print it.
 4. [x] add support for multiple paper ingestion.
 5. [x] introduce a stable database: eg postgres to store hash.
-6. [ ] integrate mem0 with rag_agent.
-7. [ ] make stable ui with web page
+6. [ ] make stable ui with web page
+
    - [x] use nextjs for frontend.
      - [x] react-mosaic for tiling
    - [x] use fastapi for backend.
 
-8. [x] artifact ingestion is a long running task, so we need to introduce a queue system to handle it.
+7. [x] artifact ingestion is a long running task, so we need to introduce a queue system to handle it.
+8. [ ] update project name and description based on the artifacts uploaded.
+       here's the algorithm:
+   1. if a project doesn't have a name and description,
+   - on the artifact upload, it will get first 3 chunks of each artifacts uploaded, feed it to llm and generate a name and description for the project.
+   2. if a project already has a name and description, nothing happens.
+
+- [x] add a side-agent helper that turns `Document[]` into project name/description JSON.
+- [x] write the prompt so the model returns strict JSON in the same language as the chunks.

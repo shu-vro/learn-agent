@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from langchain_core.documents import Document as LangchainDocument
 
 from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
 from src.db.models.preferences import Preferences
@@ -33,7 +34,7 @@ from src.utils.api.BaseResponse import BaseResponse
 from src.utils.api.artifact_markdown_fixer import rewrite_chunk_image_urls
 
 ALLOWED_SUFFIXES = frozenset[str]({".pdf"})
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 router = APIRouter(prefix="/projects", tags=["artifacts"])
 
@@ -209,6 +210,34 @@ async def get_artifact_ingestion_status(
     )
 
 
+@router.delete(
+    "/{project_id}/artifacts/{artifact_id}", response_model=BaseResponse[None]
+)
+async def delete_project_artifact(
+    request: Request,
+    project_id: str,
+    artifact_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> BaseResponse[None]:
+    user = _require_user(request)
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    stmt = select(ProjectDocument).where(
+        ProjectDocument.project_id == project_id,
+        ProjectDocument.document_id == artifact_id,
+    )
+    result = await session.execute(stmt)
+    project_document = result.scalar_one_or_none()
+    if not project_document:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    await session.delete(project_document)
+    await session.commit()
+    return BaseResponse[None].ok(data=None)
+
+
 @router.post("/{project_id}/artifacts", response_model=ArtifactResponse)
 async def upload_project_artifact(
     request: Request,
@@ -290,6 +319,13 @@ async def upload_project_artifact(
             project_id=project_id,
             document_id=document.id,
         )
+        if document.ingestion_status == "failed":
+            document.ingestion_status = "processing"
+            document.ingestion_error = None
+            document.url = rel_path
+            document.original_url = source_file_url
+            session.add(document)
+            should_process = True
         await session.commit()
 
     if not should_process:
@@ -305,7 +341,30 @@ async def upload_project_artifact(
                 )
             )
         if document.ingestion_status == "completed":
+            # Try to update project metadata from existing completed document
+            from src.tasks.artifact_ingestion import (
+                _try_update_project_metadata_from_document,
+            )
+
             doc_chunks = await _get_document_chunks(document.id, session)
+
+            try:
+                _try_update_project_metadata_from_document(
+                    project_id,
+                    document.id,
+                    chunks=list(
+                        map(
+                            lambda c: LangchainDocument(
+                                page_content=c[0].content, metadata=c[0].extra or {}
+                            ),
+                            doc_chunks[:3],
+                        )
+                    ),
+                )
+                # Refresh project to get updated name/description
+                await session.refresh(project)
+            except Exception:
+                pass  # Non-critical; metadata update failures don't block reuse
             return ArtifactResponse.ok(
                 data=ArtifactRead(
                     id=document.id,

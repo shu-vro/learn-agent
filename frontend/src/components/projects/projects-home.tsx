@@ -30,6 +30,7 @@ import {
   updateProjectRemote,
 } from "@/lib/api/projects";
 import { cn } from "@/lib/utils";
+import { Textarea } from "../ui/textarea";
 
 type MenuState =
   | { open: false }
@@ -52,6 +53,10 @@ export function ProjectsHome() {
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteProjectTarget, setDeleteProjectTarget] =
+    useState<Project | null>(null);
+  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -92,11 +97,9 @@ export function ProjectsHome() {
   const handleDelete = useCallback(
     async (p: Project) => {
       closeMenu();
-      if (!window.confirm(`Delete “${p.name}”?`)) {
-        return;
-      }
-      await deleteProjectRemote(p.id);
-      setProjects((prev) => prev.filter((x) => x.id !== p.id));
+      setDeleteProjectTarget(p);
+      setDeleteConfirmationValue("");
+      setDeleteOpen(true);
     },
     [closeMenu],
   );
@@ -205,6 +208,8 @@ export function ProjectsHome() {
               project={p}
               onOpen={openProject}
               onContextOpen={(proj, x, y) => openMenuAt(proj, x, y)}
+              onEdit={(proj) => startEdit(proj)}
+              onDelete={(proj) => handleDelete(proj)}
             />
           ))}
         </div>
@@ -265,7 +270,7 @@ export function ProjectsHome() {
             </div>
             <div className="grid gap-1.5">
               <span className="text-muted-foreground text-xs">Description</span>
-              <Input
+              <Textarea
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
               />
@@ -281,6 +286,49 @@ export function ProjectsHome() {
             </Button>
             <Button type="button" onClick={() => void saveEdit()}>
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Delete project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              To permanently delete this project and its links, type DELETE
+              (capital letters) to confirm.
+            </p>
+            <Input
+              value={deleteConfirmationValue}
+              onChange={(e) => setDeleteConfirmationValue(e.target.value)}
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={async () => {
+                if (!deleteProjectTarget) return;
+                if (deleteConfirmationValue !== "DELETE") return;
+                await deleteProjectRemote(deleteProjectTarget.id);
+                setProjects((prev) =>
+                  prev.filter((x) => x.id !== deleteProjectTarget.id),
+                );
+                setDeleteOpen(false);
+                setDeleteProjectTarget(null);
+              }}
+            >
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

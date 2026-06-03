@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db import get_session
 from src.db.models.project import Project
+from src.db.models.project_document import ProjectDocument
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.db.read_schema import read_schema_for_orm_columns
 from pydantic import BaseModel, Field
@@ -50,3 +52,49 @@ async def create_project(
         extra=payload.extra or None,
     )
     return ProjectResponse.ok(data=ProjectRead.model_validate(project))
+
+
+@router.patch("/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    request: Request,
+    project_id: str,
+    payload: ProjectCreate,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectResponse:
+    user = request.state.user
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    project.name = payload.name if payload.name is not None else project.name
+    project.description = (
+        payload.description if payload.description is not None else project.description
+    )
+    await session.commit()
+    await session.refresh(project)
+    return ProjectResponse.ok(data=ProjectRead.model_validate(project))
+
+
+@router.delete("/{project_id}", response_model=BaseResponse[None])
+async def delete_project(
+    request: Request,
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> BaseResponse[None]:
+    user = request.state.user
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await session.execute(
+        delete(ProjectDocument).where(ProjectDocument.project_id == project_id)
+    )
+    await session.delete(project)
+    await session.commit()
+    return BaseResponse.ok()

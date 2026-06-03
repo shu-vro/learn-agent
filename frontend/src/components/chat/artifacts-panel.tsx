@@ -1,6 +1,11 @@
 "use client";
 
-import { ChevronDownIcon, SettingsIcon, UploadIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  MoreHorizontal,
+  SettingsIcon,
+  UploadIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -36,6 +41,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
@@ -92,6 +103,7 @@ export function ArtifactsPanel({
     selectedArtifactId,
     setSelectedArtifactId,
     addArtifactFromFile,
+    deleteArtifact,
   } = useChatWorkspace();
 
   const [ingestionSettings, setIngestionSettings] =
@@ -282,19 +294,21 @@ export function ArtifactsPanel({
                 const isFailed = artifact.ingestion_status === "failed";
                 return (
                   <li key={artifact.id} className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedArtifactId(artifact.id)}
+                    <div
                       className={cn(
-                        "flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors",
                         isSelected
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
                     >
-                      <span className="min-w-0 flex-1 truncate">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedArtifactId(artifact.id)}
+                        className="min-w-0 flex-1 text-left truncate"
+                      >
                         {artifact.name}
-                      </span>
+                      </button>
                       {inProgress ? (
                         <Spinner className="size-3.5 shrink-0" />
                       ) : null}
@@ -303,7 +317,29 @@ export function ArtifactsPanel({
                           Failed
                         </span>
                       ) : null}
-                    </button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger>
+                          <button
+                            type="button"
+                            className="rounded-xl p-1 text-muted-foreground hover:text-foreground"
+                          >
+                            <MoreHorizontal className="size-4" />
+                            <span className="sr-only">More</span>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              await deleteArtifact(artifact.id);
+                            }}
+                            data-variant="destructive"
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                     {inProgress ? (
                       <div className="px-3 pb-1">
                         <ArtifactProgress artifact={artifact} />
@@ -325,7 +361,9 @@ export function ArtifactsPanel({
                 <ArtifactHeader className="border-border/40 bg-transparent p-0">
                   <CollapsibleTrigger
                     aria-expanded={previewOpen}
-                    aria-label={`${previewOpen ? "Collapse" : "Expand"} preview: ${selected.name}`}
+                    aria-label={`${
+                      previewOpen ? "Collapse" : "Expand"
+                    } preview: ${selected.name}`}
                     className="flex w-full items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-muted/40"
                   >
                     <ChevronDownIcon

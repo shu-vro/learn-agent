@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Literal, TypedDict, Unpack
 
-from langchain.chat_models import init_chat_model
+from langchain.chat_models import init_chat_model, BaseChatModel
 
 MODEL_CONFIGS = MappingProxyType(
     {
@@ -27,7 +27,9 @@ class InitChatModelKwargs(TypedDict, total=False):
     callbacks: list[object]
 
 
-def model_selector(model_name: str, **kwargs: Unpack[InitChatModelKwargs]):
+def model_selector(
+    model_name: str, **kwargs: Unpack[InitChatModelKwargs]
+) -> BaseChatModel:
     selected_model = MODEL_CONFIGS[model_name]
     provider, model = selected_model["provider"], selected_model["model"]
     model_kwargs: InitChatModelKwargs = {

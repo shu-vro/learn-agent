@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 from celery.signals import task_failure
 from loguru import logger
 from sqlalchemy import insert
+from langchain_core.documents import Document as LangchainDocument
 
 from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
 from src.db import sync_session_factory
@@ -20,6 +22,8 @@ from src.utils.ingestion_progress import (
     set_ingestion_progress,
 )
 from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
+from src.db.models.project import Project
+from sqlalchemy import select
 
 
 def _resolve_chunk_type(
@@ -45,6 +49,96 @@ def _chunk_extra_with_type(
     resolved = chunk_type or _resolve_chunk_type(extra)
     extra["type"] = resolved
     return extra
+
+
+def _try_update_project_metadata_from_document(
+    project_id: str,
+    document_id: str,
+    *,
+    chunks: list[LangchainDocument] | None = None,
+) -> None:
+    """Attempt to generate and update project name/description if empty.
+
+    If chunks are provided (from fresh extraction), use them directly.
+    Otherwise, fetches the first 3 chunks from the DB. Updates the project
+    if both name and description are empty. Silently fails (logs exception) if
+    generation fails.
+    """
+    session = sync_session_factory()()
+    try:
+        project = session.get(Project, project_id)
+        if project is None:
+            return
+
+        name_empty = (not project.name) or (str(project.name).strip() == "")
+        desc_empty = (not project.description) or (
+            str(project.description).strip() == ""
+        )
+        if not (name_empty and desc_empty):
+            return
+
+        # Use provided chunks or fetch from database
+        if chunks is None:
+            chunk_stmt = (
+                select(Chunk)
+                .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
+                .where(documents_chunks.c.document_id == document_id)
+                .order_by(documents_chunks.c.order.asc())
+                .limit(3)
+            )
+            chunk_result = session.execute(chunk_stmt)
+            db_chunks = list(chunk_result.scalars())
+            if not db_chunks:
+                logger.debug(
+                    "No chunks found for document %s, skipping metadata generation",
+                    document_id,
+                )
+                return
+            # Convert DB Chunk objects to document-like format
+            chunks = [
+                LangchainDocument(page_content=ch.content, metadata=ch.extra or {})
+                for ch in db_chunks
+            ]
+
+        if not chunks:
+            logger.debug(
+                "No chunks provided for document %s, skipping metadata generation",
+                document_id,
+            )
+            return
+
+        logger.info(
+            "Project %s has empty name and description, generating from chunks",
+            project_id,
+        )
+
+        try:
+            from src.side_agents.update_project_name_agent import (
+                generate_project_name_and_description,
+            )
+
+            result = generate_project_name_and_description(chunks)
+            project.name = result.get("name", project.name)
+            project.description = result.get("description", project.description)
+            session.commit()
+            logger.info(
+                "Updated project metadata from document: project_id=%s document_id=%s",
+                project_id,
+                document_id,
+            )
+        except Exception as gen_err:
+            logger.exception(
+                "Failed to generate project name/description for project_id=%s: %s",
+                project_id,
+                gen_err,
+            )
+    except Exception:
+        logger.exception(
+            "Error while attempting to update project metadata for project_id=%s",
+            project_id,
+        )
+    finally:
+        session.close()
 
 
 def _mark_document_failed(document_id: str, error: str) -> None:
@@ -125,7 +219,7 @@ def process_artifact_upload(
             use_formula_transcription=use_formula_transcription,
             recreate_collection=recreate_collection,
         )
-        extracted_documents = extraction_result["documents"]
+        extracted_documents: List[LangchainDocument] = extraction_result["documents"]
         document = session.get(Document, document_id)
         if document is None:
             raise ValueError(f"Document {document_id} not found")
@@ -164,6 +258,11 @@ def process_artifact_upload(
         document.ingestion_error = None
         session.commit()
         clear_ingestion_progress(document_id)
+
+        # Try to update project metadata from the freshly extracted chunks
+        _try_update_project_metadata_from_document(
+            project_id, document_id, chunks=extracted_documents[:3]
+        )
         logger.info(
             "Artifact ingestion completed: document_id={} chunks={}",
             document_id,

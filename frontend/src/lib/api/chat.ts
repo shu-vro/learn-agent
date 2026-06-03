@@ -10,7 +10,7 @@ import {
   SEED_THREADS,
   type ThreadSeed,
 } from "@/lib/dummy/seed";
-import { get, post } from "@/utils/fetch";
+import { del, get, post } from "@/utils/fetch";
 
 export type Thread = ThreadSeed;
 export type ChatMessage = ChatMessageSeed;
@@ -116,6 +116,18 @@ export async function uploadArtifact(
     return res;
   }
   return null;
+}
+
+export async function deleteArtifact(
+  projectId: string | null | undefined,
+  artifactId: string,
+): Promise<boolean> {
+  if (!projectId) return false;
+  await del({
+    endpoint: `/projects/${projectId}/artifacts/${artifactId}`,
+    throwable: true,
+  });
+  return true;
 }
 
 export function createLocalArtifact(name: string, text: string): Artifact {

@@ -1,18 +1,64 @@
 "use client";
 
+import { SettingsIcon } from "lucide-react";
 import Link from "next/link";
-
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ArtifactsPanel } from "@/components/chat/artifacts-panel";
 import { ChatMain } from "@/components/chat/chat-main";
 import { ThreadsPanel } from "@/components/chat/threads-panel";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  deleteProjectRemote,
+  listProjects,
+  type Project,
+  updateProjectRemote,
+} from "@/lib/api/projects";
 
 export function ChatShell({ projectId = null }: { projectId?: string | null }) {
+  const [project, setProject] = useState<Project | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!projectId) return;
+      const all = await listProjects();
+      if (cancelled) return;
+      const p = all.find((x) => x.id === projectId) ?? null;
+      setProject(p);
+      setEditTitle(p?.name ?? "");
+      setEditDescription(p?.description ?? "");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-background">
       <header className="shrink-0 border-border/40 border-b">
@@ -24,6 +70,31 @@ export function ChatShell({ projectId = null }: { projectId?: string | null }) {
             ← Projects
           </Link>
           <span className="font-medium text-sm">Learn Agent</span>
+          <div className="ml-auto">
+            {projectId ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <button
+                    type="button"
+                    className="rounded-xl p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <SettingsIcon className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                    Update
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-variant="destructive"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -101,6 +172,78 @@ export function ChatShell({ projectId = null }: { projectId?: string | null }) {
           </Tabs>
         </div>
       </div>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Update project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+            />
+            <Input
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!project) return;
+                const updated = await updateProjectRemote(project.id, {
+                  name: editTitle,
+                  description: editDescription,
+                  extra: project.extra,
+                });
+                if (updated) {
+                  setProject(updated as Project);
+                }
+                setEditOpen(false);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Delete project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              Type DELETE (capital letters) to confirm deletion.
+            </p>
+            <Input
+              value={deleteConfirmationValue}
+              onChange={(e) => setDeleteConfirmationValue(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!projectId) return;
+                if (deleteConfirmationValue !== "DELETE") return;
+                await deleteProjectRemote(projectId);
+                // navigate back to projects list
+                router.push("/");
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

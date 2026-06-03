@@ -33,25 +33,6 @@ from src.db.models import (
     User,
 )
 
-__all__ = [
-    "Base",
-    "User",
-    "Project",
-    "Thread",
-    "Chat",
-    "Chunk",
-    "Document",
-    "ProjectDocument",
-    "engine",
-    "session_factory",
-    "get_session",
-    "sync_engine",
-    "sync_session_factory",
-    "create_all_tables",
-    "CONN_URL",
-    "ASYNC_CONN_URL",
-]
-
 # Sync URL is still consumed by langgraph PostgresSaver (psycopg2-based),
 # so we keep it alongside the async URL used by SQLAlchemy / FastAPI.
 _USER = quote_plus(DATABASE_USER)
@@ -129,3 +110,23 @@ async def create_all_tables() -> None:
     review the script, then commit; this function runs ``alembic upgrade head``.
     """
     await asyncio.to_thread(upgrade_schema_to_head)
+
+
+__all__ = [
+    "Base",
+    "User",
+    "Project",
+    "Thread",
+    "Chat",
+    "Chunk",
+    "Document",
+    "ProjectDocument",
+    "engine",
+    "session_factory",
+    "get_session",
+    "sync_engine",
+    "sync_session_factory",
+    "create_all_tables",
+    "CONN_URL",
+    "ASYNC_CONN_URL",
+]

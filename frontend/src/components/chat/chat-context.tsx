@@ -38,6 +38,7 @@ type ChatWorkspaceValue = {
     file: File,
     ingestion?: IngestionUploadOptions,
   ) => Promise<void>;
+  deleteArtifact: (artifactId: string) => Promise<void>;
 };
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceValue | null>(null);
@@ -285,6 +286,24 @@ export function ChatWorkspaceProvider({
     [projectId],
   );
 
+  const deleteArtifact = useCallback(
+    async (artifactId: string) => {
+      // Optimistically remove locally
+      setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
+      if (selectedArtifactId === artifactId) {
+        setSelectedArtifactId(null);
+      }
+      if (!projectId) return;
+      try {
+        const { deleteArtifact: apiDelete } = await import("@/lib/api/chat");
+        await apiDelete(projectId, artifactId);
+      } catch (_err) {
+        // best-effort: ignore failures for now
+      }
+    },
+    [projectId, selectedArtifactId],
+  );
+
   const value = useMemo<ChatWorkspaceValue>(
     () => ({
       threads,
@@ -297,6 +316,7 @@ export function ChatWorkspaceProvider({
       selectedArtifactId,
       setSelectedArtifactId,
       addArtifactFromFile,
+      deleteArtifact,
     }),
     [
       threads,
@@ -307,6 +327,7 @@ export function ChatWorkspaceProvider({
       artifacts,
       selectedArtifactId,
       addArtifactFromFile,
+      deleteArtifact,
     ],
   );
 
