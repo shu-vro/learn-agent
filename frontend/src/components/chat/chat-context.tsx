@@ -20,7 +20,7 @@ import {
   listMessages,
   listThreads,
   type Thread,
-  uploadArtifact,
+  uploadArtifacts,
 } from "@/lib/api/chat";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
 
@@ -36,6 +36,10 @@ type ChatWorkspaceValue = {
   setSelectedArtifactId: (id: string | null) => void;
   addArtifactFromFile: (
     file: File,
+    ingestion?: IngestionUploadOptions,
+  ) => Promise<void>;
+  addArtifactsFromFiles: (
+    files: File[],
     ingestion?: IngestionUploadOptions,
   ) => Promise<void>;
   deleteArtifact: (artifactId: string) => Promise<void>;
@@ -200,55 +204,64 @@ export function ChatWorkspaceProvider({
     setActiveThreadId(id);
   }, []);
 
-  const addArtifactFromFile = useCallback(
-    async (file: File, ingestion?: IngestionUploadOptions) => {
+  const addArtifactsFromFiles = useCallback(
+    async (files: File[], ingestion?: IngestionUploadOptions) => {
+      if (!files.length) {
+        return;
+      }
       if (projectId) {
-        const tempId = `upload-${nanoid()}`;
+        const tempEntries = files.map((file) => ({
+          tempId: `upload-${nanoid()}`,
+          file,
+        }));
         setArtifacts((prev) => [
           ...prev,
-          {
+          ...tempEntries.map(({ tempId, file }) => ({
             id: tempId,
             name: file.name,
             chunks: {},
-            ingestion_status: "uploading",
+            ingestion_status: "uploading" as const,
             upload_progress: 0,
-          },
+          })),
         ]);
-        setSelectedArtifactId(tempId);
+        setSelectedArtifactId(tempEntries[0]?.tempId ?? null);
 
         try {
-          const created = await uploadArtifact(projectId, file, {
+          const created = await uploadArtifacts(projectId, files, {
             ingestion,
             onUploadProgress: (percent) => {
               setArtifacts((prev) =>
                 prev.map((artifact) =>
-                  artifact.id === tempId
+                  tempEntries.some(({ tempId }) => tempId === artifact.id)
                     ? { ...artifact, upload_progress: percent }
                     : artifact,
                 ),
               );
             },
           });
-          if (created) {
-            setArtifacts((prev) => {
-              const withoutTemp = prev.filter(
-                (artifact) => artifact.id !== tempId,
-              );
-              const existingIndex = withoutTemp.findIndex(
-                (artifact) => artifact.id === created.id,
+          const tempIds = new Set(tempEntries.map(({ tempId }) => tempId));
+          setArtifacts((prev) => {
+            let next = prev.filter((artifact) => !tempIds.has(artifact.id));
+            for (const artifact of created) {
+              const existingIndex = next.findIndex(
+                (item) => item.id === artifact.id,
               );
               if (existingIndex >= 0) {
-                return withoutTemp.map((artifact) =>
-                  artifact.id === created.id ? created : artifact,
+                next = next.map((item) =>
+                  item.id === artifact.id ? artifact : item,
                 );
+              } else {
+                next = [...next, artifact];
               }
-              return [...withoutTemp, created];
-            });
-            setSelectedArtifactId(created.id);
+            }
+            return next;
+          });
+          if (created[0]) {
+            setSelectedArtifactId(created[0].id);
           } else {
             setArtifacts((prev) =>
               prev.map((artifact) =>
-                artifact.id === tempId
+                tempIds.has(artifact.id)
                   ? {
                       ...artifact,
                       ingestion_status: "failed",
@@ -259,9 +272,10 @@ export function ChatWorkspaceProvider({
             );
           }
         } catch {
+          const tempIds = new Set(tempEntries.map(({ tempId }) => tempId));
           setArtifacts((prev) =>
             prev.map((artifact) =>
-              artifact.id === tempId
+              tempIds.has(artifact.id)
                 ? {
                     ...artifact,
                     ingestion_status: "failed",
@@ -273,17 +287,27 @@ export function ChatWorkspaceProvider({
         }
         return;
       }
-      let content = "";
-      try {
-        content = await file.text();
-      } catch {
-        content = `_Could not read file as text: ${file.name}_`;
+
+      for (const file of files) {
+        let content = "";
+        try {
+          content = await file.text();
+        } catch {
+          content = `_Could not read file as text: ${file.name}_`;
+        }
+        const art = createLocalArtifact(file.name, content || "_Empty file_");
+        setArtifacts((prev) => [...prev, art]);
+        setSelectedArtifactId(art.id);
       }
-      const art = createLocalArtifact(file.name, content || "_Empty file_");
-      setArtifacts((prev) => [...prev, art]);
-      setSelectedArtifactId(art.id);
     },
     [projectId],
+  );
+
+  const addArtifactFromFile = useCallback(
+    async (file: File, ingestion?: IngestionUploadOptions) => {
+      await addArtifactsFromFiles([file], ingestion);
+    },
+    [addArtifactsFromFiles],
   );
 
   const deleteArtifact = useCallback(
@@ -316,6 +340,7 @@ export function ChatWorkspaceProvider({
       selectedArtifactId,
       setSelectedArtifactId,
       addArtifactFromFile,
+      addArtifactsFromFiles,
       deleteArtifact,
     }),
     [
@@ -327,6 +352,7 @@ export function ChatWorkspaceProvider({
       artifacts,
       selectedArtifactId,
       addArtifactFromFile,
+      addArtifactsFromFiles,
       deleteArtifact,
     ],
   );

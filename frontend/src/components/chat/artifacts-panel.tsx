@@ -102,7 +102,7 @@ export function ArtifactsPanel({
     artifacts,
     selectedArtifactId,
     setSelectedArtifactId,
-    addArtifactFromFile,
+    addArtifactsFromFiles,
     deleteArtifact,
   } = useChatWorkspace();
 
@@ -146,16 +146,14 @@ export function ArtifactsPanel({
         ? toUploadOptions(ingestionSettings)
         : undefined;
       try {
-        for (const file of list) {
-          await addArtifactFromFile(file, options);
-        }
+        await addArtifactsFromFiles(list, options);
       } finally {
         if (inputRef.current) {
           inputRef.current.value = "";
         }
       }
     },
-    [addArtifactFromFile, ingestionSettings, showIngestionSettings],
+    [addArtifactsFromFiles, ingestionSettings, showIngestionSettings],
   );
 
   const onUploadButtonClick = () => {

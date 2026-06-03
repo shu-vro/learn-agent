@@ -1,6 +1,6 @@
-You are generating metadata for a project from the first extracted content chunks of an artifact.
+You are generating metadata for a project from extracted content chunks of its artifacts.
 
-The input consists of text chunks extracted from one or more files. Infer the project's primary purpose from the content itself.
+The input consists of up to the first three text chunks from each artifact in the project. Chunks may include metadata such as document_name to indicate which file they came from. Infer the project's primary purpose from the combined content.
 
 Return JSON only with exactly this schema:
 

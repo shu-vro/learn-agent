@@ -90,13 +90,18 @@ export type UploadArtifactOptions = {
   onUploadProgress?: (percent: number) => void;
 };
 
-export async function uploadArtifact(
+export async function uploadArtifacts(
   projectId: string,
-  file: File,
+  files: File[],
   options?: UploadArtifactOptions,
-): Promise<Artifact | null> {
+): Promise<Artifact[]> {
+  if (!files.length) {
+    return [];
+  }
   const form = new FormData();
-  form.append("file", file);
+  for (const file of files) {
+    form.append("files", file);
+  }
   if (options?.ingestion) {
     appendIngestionToFormData(form, options.ingestion);
   }
@@ -112,10 +117,19 @@ export async function uploadArtifact(
       );
     },
   });
-  if (isArtifact(res)) {
+  if (isArtifactList(res)) {
     return res;
   }
-  return null;
+  return [];
+}
+
+export async function uploadArtifact(
+  projectId: string,
+  file: File,
+  options?: UploadArtifactOptions,
+): Promise<Artifact | null> {
+  const created = await uploadArtifacts(projectId, [file], options);
+  return created[0] ?? null;
 }
 
 export async function deleteArtifact(

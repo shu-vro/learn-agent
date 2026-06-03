@@ -50,7 +50,7 @@ def _ensure_nltk_resources() -> bool:
 
 @measure_time
 def chunk_text(
-    text: str, chunk_size: int = 1800, chunk_overlap: int = 250
+    text: str, chunk_size: int = 1000, chunk_overlap: int = 250
 ) -> list[str]:
     """Splits the input text into chunks of specified size with overlap, using NLTK sentence tokenizer if available.
     nltk takes ![image](path) as 2 tokens, ! and [image]. this means they get to join using \\n\\n. so we write extra code

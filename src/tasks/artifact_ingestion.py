@@ -23,6 +23,7 @@ from src.utils.ingestion_progress import (
 )
 from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
 from src.db.models.project import Project
+from src.db.models.project_document import ProjectDocument
 from sqlalchemy import select
 
 
@@ -51,18 +52,62 @@ def _chunk_extra_with_type(
     return extra
 
 
-def _try_update_project_metadata_from_document(
+def _fetch_project_metadata_chunks(
+    session,
     project_id: str,
-    document_id: str,
     *,
-    chunks: list[LangchainDocument] | None = None,
-) -> None:
-    """Attempt to generate and update project name/description if empty.
+    limit_per_document: int = 3,
+) -> list[LangchainDocument] | None:
+    """Return up to ``limit_per_document`` chunks per linked document.
 
-    If chunks are provided (from fresh extraction), use them directly.
-    Otherwise, fetches the first 3 chunks from the DB. Updates the project
-    if both name and description are empty. Silently fails (logs exception) if
-    generation fails.
+    Returns ``None`` when any document is still processing, so metadata is
+    generated only after every artifact in the project has finished ingestion.
+    """
+    stmt = (
+        select(Document)
+        .join(ProjectDocument, ProjectDocument.document_id == Document.id)
+        .where(ProjectDocument.project_id == project_id)
+        .order_by(ProjectDocument.created_at.asc())
+    )
+    documents = list(session.execute(stmt).scalars().all())
+    if not documents:
+        return None
+
+    if any(document.ingestion_status == "processing" for document in documents):
+        logger.debug(
+            "Project %s still has documents processing; deferring metadata generation",
+            project_id,
+        )
+        return None
+
+    chunks: list[LangchainDocument] = []
+    for document in documents:
+        if document.ingestion_status != "completed":
+            continue
+        chunk_stmt = (
+            select(Chunk)
+            .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
+            .where(documents_chunks.c.document_id == document.id)
+            .order_by(documents_chunks.c.order.asc())
+            .limit(limit_per_document)
+        )
+        db_chunks = list(session.execute(chunk_stmt).scalars())
+        for chunk in db_chunks:
+            metadata = dict(chunk.extra or {})
+            metadata["document_id"] = document.id
+            metadata["document_name"] = document.name
+            chunks.append(
+                LangchainDocument(page_content=chunk.content, metadata=metadata)
+            )
+
+    return chunks or None
+
+
+def _try_update_project_metadata(project_id: str) -> None:
+    """Generate and update project name/description if empty.
+
+    Uses the first three chunks from every completed artifact in the project.
+    Waits until no linked documents are still processing.
     """
     session = sync_session_factory()()
     try:
@@ -77,39 +122,15 @@ def _try_update_project_metadata_from_document(
         if not (name_empty and desc_empty):
             return
 
-        # Use provided chunks or fetch from database
-        if chunks is None:
-            chunk_stmt = (
-                select(Chunk)
-                .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
-                .where(documents_chunks.c.document_id == document_id)
-                .order_by(documents_chunks.c.order.asc())
-                .limit(3)
-            )
-            chunk_result = session.execute(chunk_stmt)
-            db_chunks = list(chunk_result.scalars())
-            if not db_chunks:
-                logger.debug(
-                    "No chunks found for document %s, skipping metadata generation",
-                    document_id,
-                )
-                return
-            # Convert DB Chunk objects to document-like format
-            chunks = [
-                LangchainDocument(page_content=ch.content, metadata=ch.extra or {})
-                for ch in db_chunks
-            ]
-
+        chunks = _fetch_project_metadata_chunks(session, project_id)
         if not chunks:
-            logger.debug(
-                "No chunks provided for document %s, skipping metadata generation",
-                document_id,
-            )
             return
 
         logger.info(
-            "Project %s has empty name and description, generating from chunks",
+            "Project %s has empty name and description, generating from %s chunk(s) "
+            "across project artifacts",
             project_id,
+            len(chunks),
         )
 
         try:
@@ -122,9 +143,8 @@ def _try_update_project_metadata_from_document(
             project.description = result.get("description", project.description)
             session.commit()
             logger.info(
-                "Updated project metadata from document: project_id=%s document_id=%s",
+                "Updated project metadata from project artifacts: project_id=%s",
                 project_id,
-                document_id,
             )
         except Exception as gen_err:
             logger.exception(
@@ -259,10 +279,8 @@ def process_artifact_upload(
         session.commit()
         clear_ingestion_progress(document_id)
 
-        # Try to update project metadata from the freshly extracted chunks
-        _try_update_project_metadata_from_document(
-            project_id, document_id, chunks=extracted_documents[:3]
-        )
+        # Try to update project metadata once all project artifacts are ready.
+        _try_update_project_metadata(project_id)
         logger.info(
             "Artifact ingestion completed: document_id={} chunks={}",
             document_id,

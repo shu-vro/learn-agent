@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+from dataclasses import dataclass
 from typing import Any, Dict
 import uuid
 from pathlib import Path
@@ -12,11 +13,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from langchain_core.documents import Document as LangchainDocument
 
 from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
 from src.db.models.preferences import Preferences
-from src.schemas.preferences import UserPreferencesPublic, resolve_ingestion_flags
+from src.schemas.preferences import (
+    IngestionPreferences,
+    UserPreferencesPublic,
+    resolve_ingestion_flags,
+)
 from src.config.env import ASSET_UPLOAD_ROOT
 from src.db import get_session
 from src.db.models.chunk import (
@@ -152,6 +156,176 @@ def _form_bool(value: str | None) -> bool | None:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+@dataclass(frozen=True)
+class _ParsedUpload:
+    raw_name: str
+    body: bytes
+    content_type: str | None
+
+
+def _validate_upload_file(file: UploadFile, body: bytes) -> _ParsedUpload:
+    raw_name = file.filename or "upload"
+    suffix = _suffix_for_upload(raw_name)
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only .pdf files are allowed ({raw_name!r}).",
+        )
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({raw_name!r}).",
+        )
+    return _ParsedUpload(
+        raw_name=raw_name,
+        body=body,
+        content_type=file.content_type,
+    )
+
+
+async def _upload_single_artifact(
+    session: AsyncSession,
+    *,
+    project: Project,
+    project_id: str,
+    upload: _ParsedUpload,
+    ingestion: IngestionPreferences,
+    recreate_collection: bool,
+) -> tuple[ArtifactRead, bool]:
+    doc_id = str(uuid.uuid4())
+    safe = _sanitize_stored_filename(Path(upload.raw_name).name)
+    rel_path = f"{project_id}/{doc_id}_{safe}"
+    root = ASSET_UPLOAD_ROOT
+    dest = root / rel_path
+    await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(dest.write_bytes, upload.body)
+    source_file_url = dest.resolve().as_uri()
+    upload_sha256 = hashlib.sha256(upload.body).hexdigest()
+
+    should_process = False
+    existing_stmt = select(Document).where(Document.sha256 == upload_sha256)
+    existing_result = await session.execute(existing_stmt)
+    document = existing_result.scalar_one_or_none()
+
+    if document is None:
+        document = Document(
+            id=doc_id,
+            source="uploaded",
+            url=rel_path,
+            original_url=source_file_url,
+            name=Path(upload.raw_name).name,
+            sha256=upload_sha256,
+            mime_type=upload.content_type,
+            file_size=len(upload.body),
+            ingestion_status="processing",
+        )
+        session.add(document)
+        await _ensure_project_document_link(
+            session,
+            project_id=project_id,
+            document_id=doc_id,
+        )
+        try:
+            await session.commit()
+            should_process = True
+        except IntegrityError:
+            await session.rollback()
+            race_result = await session.execute(existing_stmt)
+            document = race_result.scalar_one()
+            await _ensure_project_document_link(
+                session,
+                project_id=project_id,
+                document_id=document.id,
+            )
+            await session.commit()
+    else:
+        await _ensure_project_document_link(
+            session,
+            project_id=project_id,
+            document_id=document.id,
+        )
+        if document.ingestion_status == "failed":
+            document.ingestion_status = "processing"
+            document.ingestion_error = None
+            document.url = rel_path
+            document.original_url = source_file_url
+            session.add(document)
+            should_process = True
+        await session.commit()
+
+    if not should_process:
+        if dest.exists():
+            await asyncio.to_thread(dest.unlink)
+        if document.ingestion_status == "processing":
+            return (
+                ArtifactRead(
+                    id=document.id,
+                    name=document.name,
+                    chunks={},
+                    ingestion_status=document.ingestion_status,
+                ),
+                False,
+            )
+        if document.ingestion_status == "completed":
+            from src.tasks.artifact_ingestion import _try_update_project_metadata
+
+            try:
+                _try_update_project_metadata(project_id)
+                await session.refresh(project)
+            except Exception:
+                pass
+            doc_chunks = await _get_document_chunks(document.id, session)
+            return (
+                ArtifactRead(
+                    id=document.id,
+                    name=document.name,
+                    chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
+                    ingestion_status=document.ingestion_status,
+                ),
+                False,
+            )
+        return (
+            ArtifactRead(
+                id=document.id,
+                name=document.name,
+                chunks={},
+                ingestion_status=document.ingestion_status,
+            ),
+            False,
+        )
+
+    try:
+        process_artifact_upload.delay(
+            document_id=document.id,
+            file_path=str(dest),
+            project_id=project_id,
+            original_url=source_file_url,
+            collection_name=DEFAULT_QDRANT_COLLECTION,
+            equation_ocr_lib=ingestion.equation_ocr_lib or DEFAULT_OCR_LIB,
+            use_vision_model=ingestion.use_vision_model,
+            use_image_descriptions=ingestion.use_image_descriptions,
+            use_formula_transcription=ingestion.use_formula_transcription,
+            recreate_collection=recreate_collection,
+        )
+        set_ingestion_progress(
+            document.id,
+            stage="queued",
+            label="Queued for processing",
+            progress=10,
+        )
+    except Exception as err:
+        document.ingestion_status = "failed"
+        document.ingestion_error = str(err)[:1000]
+        session.add(document)
+        await session.commit()
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to queue PDF for processing ({upload.raw_name!r}).",
+        ) from err
+
+    return await _artifact_read_for_document(document, session), True
+
+
 async def _artifact_read_for_document(
     document: Document,
     session: AsyncSession,
@@ -238,149 +412,34 @@ async def delete_project_artifact(
     return BaseResponse[None].ok(data=None)
 
 
-@router.post("/{project_id}/artifacts", response_model=ArtifactResponse)
-async def upload_project_artifact(
+@router.post("/{project_id}/artifacts", response_model=ArtifactsListResponse)
+async def upload_project_artifacts(
     request: Request,
     project_id: str,
     session: AsyncSession = Depends(get_session),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(default=[]),
+    file: UploadFile | None = File(default=None),
     use_vision_model: str | None = Form(None),
     use_image_descriptions: str | None = Form(None),
     use_formula_transcription: str | None = Form(None),
     equation_ocr_lib: str | None = Form(None),
     rebuild: str | None = Form(None),
-) -> ArtifactResponse:
+) -> ArtifactsListResponse:
     user = _require_user(request)
     project = await Project.get_by_id_for_user(session, project_id, user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    raw_name = file.filename or "upload"
-    suffix = _suffix_for_upload(raw_name)
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(
-            status_code=400,
-            detail="Only .pdf files are allowed.",
-        )
+    uploads = list(files)
+    if file is not None:
+        uploads.append(file)
+    if not uploads:
+        raise HTTPException(status_code=400, detail="At least one file is required.")
 
-    body = await file.read()
-    if len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large")
-
-    doc_id = str(uuid.uuid4())
-    safe = _sanitize_stored_filename(Path(raw_name).name)
-    rel_path = f"{project_id}/{doc_id}_{safe}"
-    root = ASSET_UPLOAD_ROOT
-    dest = root / rel_path
-    await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
-    await asyncio.to_thread(dest.write_bytes, body)
-    source_file_url = dest.resolve().as_uri()
-    upload_sha256 = hashlib.sha256(body).hexdigest()
-
-    should_process = False
-    existing_stmt = select(Document).where(Document.sha256 == upload_sha256)
-    existing_result = await session.execute(existing_stmt)
-    document = existing_result.scalar_one_or_none()
-
-    if document is None:
-        document = Document(
-            id=doc_id,
-            source="uploaded",
-            url=rel_path,
-            original_url=source_file_url,
-            name=Path(raw_name).name,
-            sha256=upload_sha256,
-            mime_type=file.content_type,
-            file_size=len(body),
-            ingestion_status="processing",
-        )
-        session.add(document)
-        await _ensure_project_document_link(
-            session,
-            project_id=project_id,
-            document_id=doc_id,
-        )
-        try:
-            await session.commit()
-            should_process = True
-        except IntegrityError:
-            await session.rollback()
-            race_result = await session.execute(existing_stmt)
-            document = race_result.scalar_one()
-            await _ensure_project_document_link(
-                session,
-                project_id=project_id,
-                document_id=document.id,
-            )
-            await session.commit()
-    else:
-        await _ensure_project_document_link(
-            session,
-            project_id=project_id,
-            document_id=document.id,
-        )
-        if document.ingestion_status == "failed":
-            document.ingestion_status = "processing"
-            document.ingestion_error = None
-            document.url = rel_path
-            document.original_url = source_file_url
-            session.add(document)
-            should_process = True
-        await session.commit()
-
-    if not should_process:
-        if dest.exists():
-            await asyncio.to_thread(dest.unlink)
-        if document.ingestion_status == "processing":
-            return ArtifactResponse.ok(
-                data=ArtifactRead(
-                    id=document.id,
-                    name=document.name,
-                    chunks={},
-                    ingestion_status=document.ingestion_status,
-                )
-            )
-        if document.ingestion_status == "completed":
-            # Try to update project metadata from existing completed document
-            from src.tasks.artifact_ingestion import (
-                _try_update_project_metadata_from_document,
-            )
-
-            doc_chunks = await _get_document_chunks(document.id, session)
-
-            try:
-                _try_update_project_metadata_from_document(
-                    project_id,
-                    document.id,
-                    chunks=list(
-                        map(
-                            lambda c: LangchainDocument(
-                                page_content=c[0].content, metadata=c[0].extra or {}
-                            ),
-                            doc_chunks[:3],
-                        )
-                    ),
-                )
-                # Refresh project to get updated name/description
-                await session.refresh(project)
-            except Exception:
-                pass  # Non-critical; metadata update failures don't block reuse
-            return ArtifactResponse.ok(
-                data=ArtifactRead(
-                    id=document.id,
-                    name=document.name,
-                    chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
-                    ingestion_status=document.ingestion_status,
-                )
-            )
-        return ArtifactResponse.ok(
-            data=ArtifactRead(
-                id=document.id,
-                name=document.name,
-                chunks={},
-                ingestion_status=document.ingestion_status,
-            )
-        )
+    parsed_uploads: list[_ParsedUpload] = []
+    for upload_file in uploads:
+        body = await upload_file.read()
+        parsed_uploads.append(_validate_upload_file(upload_file, body))
 
     prefs_row = await Preferences.get_or_create(session, user.id)
     base_ingestion = UserPreferencesPublic.from_model(prefs_row).ingestion
@@ -392,39 +451,23 @@ async def upload_project_artifact(
         equation_ocr_lib=equation_ocr_lib if equation_ocr_lib else None,
     )
     recreate_collection = _form_bool(rebuild) or False
+    recreate_for_next = recreate_collection
 
-    try:
-        process_artifact_upload.delay(
-            document_id=document.id,
-            file_path=str(dest),
+    items: list[ArtifactRead] = []
+    for parsed in parsed_uploads:
+        artifact, queued = await _upload_single_artifact(
+            session,
+            project=project,
             project_id=project_id,
-            original_url=source_file_url,
-            collection_name=DEFAULT_QDRANT_COLLECTION,
-            equation_ocr_lib=ingestion.equation_ocr_lib or DEFAULT_OCR_LIB,
-            use_vision_model=ingestion.use_vision_model,
-            use_image_descriptions=ingestion.use_image_descriptions,
-            use_formula_transcription=ingestion.use_formula_transcription,
-            recreate_collection=recreate_collection,
+            upload=parsed,
+            ingestion=ingestion,
+            recreate_collection=recreate_for_next,
         )
-        set_ingestion_progress(
-            document.id,
-            stage="queued",
-            label="Queued for processing",
-            progress=10,
-        )
-    except Exception as err:
-        document.ingestion_status = "failed"
-        document.ingestion_error = str(err)[:1000]
-        session.add(document)
-        await session.commit()
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to queue PDF for processing.",
-        ) from err
+        items.append(artifact)
+        if queued and recreate_for_next:
+            recreate_for_next = False
 
-    return ArtifactResponse.ok(
-        data=await _artifact_read_for_document(document, session)
-    )
+    return ArtifactsListResponse.ok(data=items)
 
 
 __all__ = ["router"]
