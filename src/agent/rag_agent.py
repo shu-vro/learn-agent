@@ -65,6 +65,18 @@ def _source_summary_lines(documents: list[Document]) -> list[str]:
     return lines
 
 
+_DIM = "\033[2m"
+_RESET = "\033[0m\n\n"
+
+
+def _chunk_reasoning_text(token: Any) -> str:
+    additional_kwargs = getattr(token, "additional_kwargs", None) or {}
+    reasoning = additional_kwargs.get("reasoning_content")
+    if reasoning is None:
+        return ""
+    return reasoning if isinstance(reasoning, str) else str(reasoning)
+
+
 def _content_to_text(content: Any) -> str:
     if content is None:
         return ""
@@ -169,6 +181,8 @@ def answer_question(
     internal_messages = []
 
     answer_text = ""
+    reasoning_text = ""
+    reasoning_section_open = False
     pending_tool_calls: dict[str, dict[str, Any]] = {}
     for chunk in agent.stream(
         {"messages": (f"Question:\n{question}\n\n")},
@@ -179,7 +193,22 @@ def answer_question(
         if chunk["type"] == "messages":
             token, metadata = chunk["data"]
             if metadata["langgraph_node"] and metadata["langgraph_node"] == "model":
-                print(token.content, end="", flush=True)
+                reasoning_delta = _chunk_reasoning_text(token)
+                content_delta = _content_to_text(token.content)
+
+                if reasoning_delta:
+                    if not reasoning_section_open:
+                        print(f"\n{_DIM}--- thinking ---\n", end="", flush=True)
+                        reasoning_section_open = True
+                    print(reasoning_delta, end="", flush=True)
+                    reasoning_text += reasoning_delta
+
+                if content_delta:
+                    if reasoning_section_open:
+                        print(f"\n---{_RESET}\n", flush=True)
+                        reasoning_section_open = False
+                    print(content_delta, end="", flush=True)
+                    answer_text += content_delta
 
         if chunk["type"] == "updates":
             token = chunk["data"]
@@ -197,9 +226,13 @@ def answer_question(
                                 "args": tool_call.get("args", {}),
                             }
 
-                model_text = _content_to_text(model_message.content)
-                if model_text:
-                    answer_text += model_text
+                if not answer_text:
+                    model_text = _content_to_text(model_message.content)
+                    if model_text:
+                        answer_text += model_text
+
+    if reasoning_section_open:
+        print(f"\n---{_RESET}", flush=True)
 
     print(internal_messages)
     # print("\n\nSources:")
@@ -211,10 +244,10 @@ def answer_question(
             usage_aggregator.get_aggregated_usage() if usage_aggregator else "N/A",
         )
         if summarization_aggregator:
-            summarize_usage = summarization_aggregator.get_aggregated_usage()[0].get(
+            summarize_usage = summarization_aggregator.get_aggregated_usage().get(
                 SUMMARIZATION_AGGREGATOR_KEY, []
             )
-            if len(summarize_usage[SUMMARIZATION_AGGREGATOR_KEY]):
+            if summarize_usage:
                 print(
                     "\nAggregated Summarization Metadata:",
                     summarize_usage,
