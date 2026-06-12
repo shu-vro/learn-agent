@@ -195,7 +195,9 @@ def _format_results(
     ]
 
     for result in search_results:
-        lines.append(f"- {result.get('title', 'Untitled')} — {_result_url(result)}")
+        title = result.get("title", "Untitled")
+        url = _result_url(result)
+        lines.append(f"- [{title}]({url})")
         snippet = result.get("snippet", "").strip()
         if snippet:
             lines.append(f"  snippet: {snippet}")
@@ -212,8 +214,7 @@ def _format_results(
         lines.append(
             "\n".join(
                 [
-                    f"[Web {idx}] title={chunk.title}, "
-                    f"url={chunk.url}, "
+                    f"[Web {idx}] [{chunk.title}]({chunk.url}), "
                     f"bm25_score={chunk.bm25_score:.4f}, "
                     f"chunk={chunk.chunk_index}",
                     chunk.text,
@@ -230,7 +231,7 @@ def duckduckgo_search(query: str) -> str:
 
     Fetches the top search results, extracts page content, ranks the most
     relevant passages with BM25, and returns excerpts with source URLs.
-    Always cite the url field from each [Web N] block.
+    Always cite sources using markdown links: `[title](url)`.
     """
     search_results = _search_urls(query)
     all_chunks: list[_RankedChunk] = []

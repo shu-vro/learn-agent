@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
+from qdrant_client import models as qdrant_models
 from src.db import CONN_URL
 
 from src.config.constants import (
@@ -27,7 +28,7 @@ from src.config.constants import (
 )
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.utils.time_utils import measure_time
-from src.agent.tools.document_retriever import retrieve_context
+from src.agent.tools.document_retriever import retrieve_context_tool
 from src.agent.tools.web_fetch import fetch_url
 from src.agent.tools.builtin_tools import youtube_search
 from src.agent.tools.duckduckgo_search import duckduckgo_search
@@ -156,7 +157,28 @@ def answer_question(
         callbacks=[summarization_aggregator] if summarization_aggregator else None,
     )
 
-    tools = [retrieve_context, duckduckgo_search, youtube_search, fetch_url]
+    retrieve_context = retrieve_context_tool(
+        filters=qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="metadata.doc_id",
+                    match=qdrant_models.MatchAny(
+                        any=[
+                            "444673994328f7be8aee9d96fb240596b6f254f06ebaa53a2673413a244198c9",  # pragma: allowlist secret
+                            "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",  # pragma: allowlist secret
+                        ]
+                    ),
+                ),
+            ]
+        )
+    )
+
+    tools = [
+        retrieve_context,
+        duckduckgo_search,
+        youtube_search,
+        fetch_url,
+    ]
 
     agent = create_agent(
         llm,
