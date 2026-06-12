@@ -1,7 +1,13 @@
+import type { ReasoningEffort } from "@/lib/api/models";
 import { get, patch } from "@/utils/fetch";
 
 export type ThemeChoice = "system" | "light" | "dark";
 export type EquationOcrLib = "local" | "llm";
+
+export type ChatModelPreferences = {
+  default_model: string;
+  reasoning_effort: ReasoningEffort;
+};
 
 export type IngestionPreferences = {
   use_vision_model: boolean;
@@ -13,6 +19,7 @@ export type IngestionPreferences = {
 export type UserPreferences = {
   theme: ThemeChoice;
   ingestion: IngestionPreferences;
+  chat: ChatModelPreferences;
 };
 
 export type UserProfile = {
@@ -45,6 +52,7 @@ export async function fetchIngestionConfig(): Promise<IngestionConfig> {
 export async function updatePreferences(
   body: Partial<UserPreferences> & {
     ingestion?: Partial<IngestionPreferences>;
+    chat?: Partial<ChatModelPreferences>;
   },
 ): Promise<UserPreferences | null> {
   const data = await patch({

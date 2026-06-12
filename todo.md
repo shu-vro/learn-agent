@@ -22,4 +22,4 @@
    2. if a project already has a name and description, nothing happens.
 
 9. [x] add support for uploading and handling multiple artifacts in a single project on a single upload
-10. [ ] add model picker preset with reasoning settings. also add this in user's settings for preferences. user can change default model and it will load next time user goes to /chat.
+10. [x] add model picker preset with reasoning settings. also add this in user's settings for preferences. user can change default model and it will load next time user goes to /chat.

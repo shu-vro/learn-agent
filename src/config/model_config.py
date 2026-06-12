@@ -78,10 +78,10 @@ def model_selector(
     model_name: str, **kwargs: Unpack[InitChatModelKwargs]
 ) -> BaseChatModel:
     selected_model = MODEL_CONFIGS[model_name]
-    provider, model = selected_model["provider"], selected_model["model"]
+    provider, model = selected_model.provider, selected_model.model
 
     model_kwargs: InitChatModelKwargs = {
-        "temperature": selected_model.get("temperature", 0),
+        "temperature": selected_model.temperature,
         **kwargs,
     }
     if provider == "omlx":

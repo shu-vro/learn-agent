@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BotIcon,
   ChevronRightIcon,
   FileScanIcon,
   LockIcon,
@@ -13,6 +14,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
+import { ChatModelSettingsFields } from "@/components/settings/chat-model-settings-fields";
 import { IngestionSettingsFields } from "@/components/settings/ingestion-settings-fields";
 import { SettingsField } from "@/components/settings/settings-field";
 import {
@@ -30,7 +32,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { IngestionPreferences, ThemeChoice } from "@/lib/api/preferences";
+import { fetchModelPresets } from "@/lib/api/models";
+import type {
+  ChatModelPreferences,
+  IngestionPreferences,
+  ThemeChoice,
+} from "@/lib/api/preferences";
 import {
   updatePassword,
   updatePreferences,
@@ -39,7 +46,12 @@ import {
 import { formatRequestError } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "account" | "security" | "appearance" | "ingestion";
+type SettingsSection =
+  | "account"
+  | "security"
+  | "appearance"
+  | "chat"
+  | "ingestion";
 
 const NAV: {
   id: SettingsSection;
@@ -68,6 +80,13 @@ const NAV: {
     description: "Theme",
     icon: PaletteIcon,
     iconClass: "bg-teal-500/15 text-teal-500",
+  },
+  {
+    id: "chat",
+    label: "Chat model",
+    description: "Default model & reasoning",
+    icon: BotIcon,
+    iconClass: "bg-sky-500/15 text-sky-500",
   },
   {
     id: "ingestion",
@@ -135,6 +154,12 @@ export function SettingsPage() {
     use_formula_transcription: true,
     equation_ocr_lib: "local",
   });
+  const [chat, setChat] = useState<ChatModelPreferences>({
+    default_model: "omlx:gemma-4-e4b-it-4bit",
+    reasoning_effort: null,
+  });
+  const [modelPresets, setModelPresets] =
+    useState<Awaited<ReturnType<typeof fetchModelPresets>>>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -153,8 +178,24 @@ export function SettingsPage() {
       setEmail(user.email);
       setThemeLocal(user.preferences.theme);
       setIngestion(user.preferences.ingestion);
+      if (user.preferences.chat) {
+        setChat(user.preferences.chat);
+      }
     }
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const presets = await fetchModelPresets();
+      if (!cancelled) {
+        setModelPresets(presets);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading || !user) {
     return (
@@ -197,6 +238,13 @@ export function SettingsPage() {
           if (prefs) {
             setPreferences(prefs);
             setTheme(theme);
+          }
+          break;
+        }
+        case "chat": {
+          const prefs = await updatePreferences({ chat });
+          if (prefs) {
+            setPreferences(prefs);
           }
           break;
         }
@@ -355,6 +403,28 @@ export function SettingsPage() {
                             <SelectItem value="dark">Dark</SelectItem>
                           </SelectContent>
                         </Select>
+                      </SettingsField>
+                    </div>
+                  )}
+
+                  {activeSection === "chat" && (
+                    <div className="grid gap-5 pb-2">
+                      <SettingsField
+                        label="Default model"
+                        hint="Used when you open chat. You can still switch models per session."
+                      >
+                        {modelPresets ? (
+                          <ChatModelSettingsFields
+                            value={chat}
+                            onChange={setChat}
+                            models={modelPresets.models}
+                            reasoningEfforts={modelPresets.reasoning_efforts}
+                          />
+                        ) : (
+                          <p className="text-muted-foreground text-sm">
+                            Loading models…
+                          </p>
+                        )}
                       </SettingsField>
                     </div>
                   )}

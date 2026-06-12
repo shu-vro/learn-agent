@@ -29,7 +29,13 @@ const ChatPrompt = dynamic(
   },
 );
 
-export function ChatMain({ className }: { className?: string }) {
+export function ChatMain({
+  className,
+  promptGlobalDrop = true,
+}: {
+  className?: string;
+  promptGlobalDrop?: boolean;
+}) {
   const { messages, appendUserMessage } = useChatWorkspace();
 
   return (
@@ -73,6 +79,7 @@ export function ChatMain({ className }: { className?: string }) {
       <div className="shrink-0 border-border/30 border-t px-4 py-4">
         <div className="mx-auto w-full max-w-3xl">
           <ChatPrompt
+            globalDrop={promptGlobalDrop}
             onSubmit={(text, e: FormEvent<HTMLFormElement>) => {
               e.preventDefault();
               appendUserMessage(text);

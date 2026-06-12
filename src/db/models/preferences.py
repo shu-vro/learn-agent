@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from src.config.constants import DEFAULT_OCR_LIB
+from src.config.constants import DEFAULT_LLM_MODEL, DEFAULT_OCR_LIB
 from src.db.models.base import Base
 
 
@@ -27,6 +27,8 @@ class Preferences(Base):
     use_image_descriptions = Column(Boolean, nullable=False, server_default="false")
     use_formula_transcription = Column(Boolean, nullable=False, server_default="false")
     equation_ocr_lib = Column(String, nullable=False, server_default=DEFAULT_OCR_LIB)
+    default_llm_model = Column(String, nullable=False, server_default=DEFAULT_LLM_MODEL)
+    default_reasoning_effort = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -36,6 +36,7 @@ dependencies = [
     "loguru>=0.7.3",
     "mem0ai>=2.0.5",
     "nltk>=3.9.4",
+    "ocrmac>=1.0.1",
     "pix2tex>=0.1.4",
     "pre-commit>=4.5.1",
     "psycopg2-binary>=2.9.12",

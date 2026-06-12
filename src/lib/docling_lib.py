@@ -394,6 +394,9 @@ def docling_pdf_extractor(
                 upload_artifacts_directory_to_s3,
             )
 
+            pdf_filename = doc_artifacts_dir / f"{doc_id}.pdf"
+            shutil.copy2(resolved_file_path, pdf_filename)
+
             with measure_time("s3_upload", tracker=time_tracker):
                 s3_artifact_keys = upload_artifacts_directory_to_s3(
                     doc_artifacts_dir,

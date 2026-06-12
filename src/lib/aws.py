@@ -99,6 +99,10 @@ def artifact_markdown_s3_key(doc_id: str, *, s3_prefix: str = "artifacts") -> st
     return f"{artifact_s3_prefix(doc_id, s3_prefix=s3_prefix)}/{doc_id}.md"
 
 
+def artifact_pdf_s3_key(doc_id: str, *, s3_prefix: str = "artifacts") -> str:
+    return f"{artifact_s3_prefix(doc_id, s3_prefix=s3_prefix)}/{doc_id}.pdf"
+
+
 def rsa_signer(message):
     """Cryptographically sign the CloudFront policy structure using your private key."""
     with open(PRIVATE_KEY_PATH, "rb") as key_file:
@@ -142,17 +146,3 @@ def generate_disposable_url(
         date_less_than=datetime.fromtimestamp(expire_epoch, tz=timezone.utc),
     )
     return signed_url
-
-
-if __name__ == "__main__":
-    # 1. Prep a dummy file locally
-    with open("secret_report.pdf", "w") as f:
-        f.write("Classified data stream.")
-
-    # 2. Push up to S3
-    file_key = "reports/secret_report.pdf"
-    upload_file_to_s3("secret_report.pdf", file_key)
-
-    # 3. Generate a url valid for only 2 minutes
-    disposable_url = generate_disposable_url(file_key, expires_in_minutes=2)
-    print(f"\n[Generated Disposable Link]:\n{disposable_url}")

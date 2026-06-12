@@ -1,5 +1,8 @@
 "use client";
 
+import type { FileUIPart } from "ai";
+import type { FormEvent } from "react";
+import { memo, useCallback, useState } from "react";
 import {
   Attachment,
   AttachmentPreview,
@@ -19,7 +22,6 @@ import {
   PromptInputBody,
   PromptInputButton,
   PromptInputFooter,
-  PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputToolbarCameraPhoto,
@@ -29,10 +31,9 @@ import {
   PromptInputTools,
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
-import type { FileUIPart } from "ai";
-import { GlobeIcon } from "lucide-react";
-import type { FormEvent } from "react";
-import { memo, useCallback, useState } from "react";
+
+import { useChatModel } from "@/components/chat/chat-model-context";
+import { ModelPicker } from "@/components/chat/model-picker";
 
 const SUBMITTING_TIMEOUT = 200;
 const STREAMING_TIMEOUT = 2000;
@@ -84,9 +85,20 @@ const PromptInputAttachmentsDisplay = () => {
 
 export const ChatPrompt = ({
   onSubmit,
+  globalDrop = true,
 }: {
   onSubmit: (text: string, e: FormEvent<HTMLFormElement>) => void;
+  globalDrop?: boolean;
 }) => {
+  const {
+    models,
+    reasoningEfforts,
+    selectedModelId,
+    reasoningEffort,
+    setSelectedModelId,
+    setReasoningEffort,
+    loading: modelsLoading,
+  } = useChatModel();
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
   >("ready");
@@ -117,36 +129,37 @@ export const ChatPrompt = ({
 
   return (
     <div className="size-full">
-      <PromptInputProvider>
-        <PromptInput globalDrop multiple onSubmit={handleSubmit}>
-          <PromptInputAttachmentsDisplay />
-          <PromptInputBody>
-            <PromptInputTextarea />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools className="min-w-0 flex-wrap">
-              <PromptInputActionMenu>
-                <PromptInputActionMenuTrigger />
-                <PromptInputActionMenuContent>
-                  <PromptInputActionUploadFile />
-                  <PromptInputActionUploadPhoto />
-                  <PromptInputActionAddScreenshot />
-                  <PromptInputActionTakePhoto />
-                </PromptInputActionMenuContent>
-              </PromptInputActionMenu>
-              {/* <PromptInputToolbarUploadFile />
-              <PromptInputToolbarUploadPhoto />
-              <PromptInputToolbarScreenshot />
-              <PromptInputToolbarCameraPhoto /> */}
-              <PromptInputButton>
-                <GlobeIcon size={16} />
-                <span className="max-sm:sr-only">Search</span>
-              </PromptInputButton>
-            </PromptInputTools>
-            <PromptInputSubmit status={status} />
-          </PromptInputFooter>
-        </PromptInput>
-      </PromptInputProvider>
+      <PromptInput globalDrop={globalDrop} multiple onSubmit={handleSubmit}>
+        <PromptInputAttachmentsDisplay />
+        <PromptInputBody>
+          <PromptInputTextarea />
+        </PromptInputBody>
+        <PromptInputFooter className="items-start">
+          <PromptInputTools className="min-w-0 flex-wrap">
+            <PromptInputActionMenu>
+              <PromptInputActionMenuTrigger />
+              <PromptInputActionMenuContent>
+                <PromptInputActionUploadFile />
+                <PromptInputActionUploadPhoto />
+                <PromptInputActionAddScreenshot />
+                <PromptInputActionTakePhoto />
+              </PromptInputActionMenuContent>
+            </PromptInputActionMenu>
+            {!modelsLoading && models.length > 0 ? (
+              <ModelPicker
+                variant="toolbar"
+                models={models}
+                reasoningEfforts={reasoningEfforts}
+                selectedModelId={selectedModelId}
+                reasoningEffort={reasoningEffort}
+                onModelChange={setSelectedModelId}
+                onReasoningEffortChange={setReasoningEffort}
+              />
+            ) : null}
+          </PromptInputTools>
+          <PromptInputSubmit status={status} />
+        </PromptInputFooter>
+      </PromptInput>
     </div>
   );
 };

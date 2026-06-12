@@ -4,11 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-from src.config.constants import DEFAULT_OCR_LIB
+from src.config.constants import DEFAULT_LLM_MODEL, DEFAULT_OCR_LIB
 from src.db.models.preferences import Preferences
 
 ThemeChoice = Literal["system", "light", "dark"]
 EquationOcrLib = Literal["local", "llm"]
+ReasoningEffortChoice = Literal["low", "medium", "high"]
 
 
 class IngestionPreferences(BaseModel):
@@ -26,12 +27,21 @@ class IngestionPreferences(BaseModel):
         return normalized
 
 
+class ChatModelPreferences(BaseModel):
+    default_model: str = DEFAULT_LLM_MODEL
+    reasoning_effort: ReasoningEffortChoice | None = None
+
+
 class UserPreferencesPublic(BaseModel):
     theme: ThemeChoice = "system"
     ingestion: IngestionPreferences
+    chat: ChatModelPreferences
 
     @classmethod
     def from_model(cls, prefs: Preferences) -> "UserPreferencesPublic":
+        reasoning: ReasoningEffortChoice | None = None
+        if prefs.default_reasoning_effort in {"low", "medium", "high"}:
+            reasoning = prefs.default_reasoning_effort  # type: ignore[assignment]
         return cls(
             theme=prefs.theme,  # type: ignore[arg-type]
             ingestion=IngestionPreferences(
@@ -39,6 +49,10 @@ class UserPreferencesPublic(BaseModel):
                 use_image_descriptions=bool(prefs.use_image_descriptions),
                 use_formula_transcription=bool(prefs.use_formula_transcription),
                 equation_ocr_lib=prefs.equation_ocr_lib,  # type: ignore[arg-type]
+            ),
+            chat=ChatModelPreferences(
+                default_model=prefs.default_llm_model or DEFAULT_LLM_MODEL,
+                reasoning_effort=reasoning,
             ),
         )
 
@@ -50,9 +64,15 @@ class IngestionPreferencesUpdate(BaseModel):
     equation_ocr_lib: EquationOcrLib | None = None
 
 
+class ChatModelPreferencesUpdate(BaseModel):
+    default_model: str | None = None
+    reasoning_effort: ReasoningEffortChoice | None = None
+
+
 class UserPreferencesUpdate(BaseModel):
     theme: ThemeChoice | None = None
     ingestion: IngestionPreferencesUpdate | None = None
+    chat: ChatModelPreferencesUpdate | None = None
 
 
 def resolve_ingestion_flags(
@@ -106,3 +126,9 @@ def apply_preferences_update(
         if prefs.use_vision_model is False:
             prefs.use_image_descriptions = False
             prefs.use_formula_transcription = False
+    if payload.chat is not None:
+        chat = payload.chat
+        if chat.default_model is not None:
+            prefs.default_llm_model = chat.default_model
+        if "reasoning_effort" in chat.model_fields_set:
+            prefs.default_reasoning_effort = chat.reasoning_effort
