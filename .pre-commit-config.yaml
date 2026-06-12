@@ -12,7 +12,7 @@ repos:
     rev: v0.15.11
     hooks:
       - id: ruff-check
-        args: [--fix, --extend-ignore=E402]
+        args: [--fix, --extend-ignore=E402, --extend-ignore=E731]
       - id: ruff-format
 
   - repo: local

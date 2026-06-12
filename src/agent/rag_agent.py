@@ -29,7 +29,8 @@ from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.utils.time_utils import measure_time
 from src.agent.tools.document_retriever import retrieve_context
 from src.agent.tools.web_fetch import fetch_url
-from src.agent.tools.builtin_tools import duckduckgo_search, youtube_search
+from src.agent.tools.builtin_tools import youtube_search
+from src.agent.tools.duckduckgo_search import duckduckgo_search
 from src.agent.prompts import main_agent_system_prompt
 from src.config.model_config import model_selector
 

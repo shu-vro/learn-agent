@@ -1,14 +1,12 @@
-import requests
 from langchain_core.tools import tool
-from markdownify import markdownify
+
+from src.utils.fetch_web_content import fetch_page_markdown
 
 
 @tool
 def fetch_url(url: str) -> str:
     """Fetch text content from a URL"""
-    response = requests.get(url, timeout=10.0)
-    response.raise_for_status()
-    return markdownify(response.text)
+    return fetch_page_markdown(url)
 
 
 __all__ = ["fetch_url"]
