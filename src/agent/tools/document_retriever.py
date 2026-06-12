@@ -27,7 +27,9 @@ def retrieve_context(
 ) -> tuple[str, list[Document]]:
     """Retrieve information to help answer a query. score threshold is between 0 and 1, higher means more relevant."""
     retrieved_docs_with_scores = vector_store.similarity_search_with_score(
-        query=query, k=5, score_threshold=score_threshold
+        query=query,
+        k=5,
+        score_threshold=score_threshold,
     )
 
     retrieved_docs = [

@@ -28,6 +28,7 @@ from src.config.constants import (
 from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 from src.utils.time_utils import measure_time
 from src.agent.tools.document_retriever import retrieve_context
+from src.agent.tools.web_fetch import fetch_url
 from src.agent.tools.builtin_tools import duckduckgo_search, youtube_search
 from src.agent.prompts import main_agent_system_prompt
 from src.config.model_config import model_selector
@@ -154,7 +155,7 @@ def answer_question(
         callbacks=[summarization_aggregator] if summarization_aggregator else None,
     )
 
-    tools = [retrieve_context, duckduckgo_search, youtube_search]
+    tools = [retrieve_context, duckduckgo_search, youtube_search, fetch_url]
 
     agent = create_agent(
         llm,
