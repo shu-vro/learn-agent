@@ -23,3 +23,4 @@
 
 9. [x] add support for uploading and handling multiple artifacts in a single project on a single upload
 10. [x] add model picker preset with reasoning settings. also add this in user's settings for preferences. user can change default model and it will load next time user goes to /chat.
+11. [ ] problem: if a service goes down, everything goes down. for example, if qdrant goes down, users can't even see their other threads.

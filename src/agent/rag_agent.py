@@ -134,23 +134,10 @@ def answer_question(
         SUMMARIZATION_AGGREGATOR_KEY
     )
 
-    # llm = init_chat_model(
-    #     model=config.llm_model,
-    #     temperature=0,
-    #     configurable_fields="any",
-    #     callbacks=[usage_aggregator] if usage_aggregator else None,
-    # )
-
     llm = model_selector(
         config.llm_model, callbacks=[usage_aggregator] if usage_aggregator else None
     )
 
-    # summarization_llm = init_chat_model(
-    #     model=config.llm_model,
-    #     temperature=0,
-    #     configurable_fields="any",
-    #     callbacks=[summarization_aggregator] if summarization_aggregator else None,
-    # )
     summarization_llm = model_selector(
         config.llm_model,
         temperature=0,

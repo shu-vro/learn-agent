@@ -9,6 +9,8 @@ from src.utils.api.jwt import try_get_current_user
 from pydantic import BaseModel
 from src.db import engine
 from sqlalchemy import text
+from src.lib.redis_lib import redis_client
+from fakeredis import FakeRedis
 
 # main router
 router = APIRouter()
@@ -16,6 +18,7 @@ router = APIRouter()
 
 class HealthData(BaseModel):
     db: bool
+    redis: bool
 
 
 HealthCheckResponse = BaseResponse[HealthData]
@@ -27,8 +30,19 @@ async def health_check() -> HealthCheckResponse:
         async with engine().connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception:
-        return HealthCheckResponse.error(status_code=500, data=HealthData(db=False))
-    return HealthCheckResponse.ok(data=HealthData(db=True))
+        return HealthCheckResponse.error(
+            status_code=500, data=HealthData(db=False, redis=True)
+        )
+    try:
+        if isinstance(redis_client, FakeRedis):
+            return HealthCheckResponse.error(
+                status_code=500, data=HealthData(redis=False, db=True)
+            )
+    except Exception:
+        return HealthCheckResponse.error(
+            status_code=500, data=HealthData(redis=True, db=True)
+        )
+    return HealthCheckResponse.ok(data=HealthData(db=True, redis=True))
 
 
 router.include_router(auth_router, prefix="/v1")
