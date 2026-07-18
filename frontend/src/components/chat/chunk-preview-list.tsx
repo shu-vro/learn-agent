@@ -57,7 +57,7 @@ export function ChunkPreviewList({
   }, [projectId, artifactId]);
 
   const handleGenerate = useCallback(
-    async (chunkId: string) => {
+    async (chunkId: string, regenerate = false) => {
       if (!projectId || !artifactId) {
         return;
       }
@@ -68,7 +68,12 @@ export function ChunkPreviewList({
       });
       setGenerating((prev) => ({ ...prev, [chunkId]: true }));
       try {
-        const content = await generateChunkNote(projectId, artifactId, chunkId);
+        const content = await generateChunkNote(
+          projectId,
+          artifactId,
+          chunkId,
+          regenerate,
+        );
         if (content != null) {
           setNotes((prev) => ({ ...prev, [chunkId]: content }));
         } else {
@@ -146,7 +151,7 @@ export function ChunkPreviewList({
                             variant="ghost"
                             size="sm"
                             disabled={isGenerating}
-                            onClick={() => void handleGenerate(chunk.id)}
+                            onClick={() => void handleGenerate(chunk.id, true)}
                           >
                             {isGenerating ? (
                               <>

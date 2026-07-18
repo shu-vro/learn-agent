@@ -224,9 +224,11 @@ export async function generateChunkNote(
   projectId: string,
   artifactId: string,
   chunkId: string,
+  regenerate = false,
 ): Promise<string | null> {
+  const query = regenerate ? "?regenerate=true" : "";
   const res = await post({
-    endpoint: `/projects/${projectId}/artifacts/${artifactId}/chunks/${chunkId}/note`,
+    endpoint: `/projects/${projectId}/artifacts/${artifactId}/chunks/${chunkId}/note${query}`,
     throwable: true,
   });
   if (res && typeof res === "object" && "content" in res) {

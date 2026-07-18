@@ -9,7 +9,7 @@ from langchain_core.messages import (
     SystemMessage,
     BaseMessage,
 )
-from langchain.agents.middleware import SummarizationMiddleware
+from langchain.agents.middleware import SummarizationMiddleware, wrap_tool_call
 from langgraph.checkpoint.memory import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langchain.agents import create_agent
@@ -70,6 +70,58 @@ def _source_summary_lines(documents: list[Document]) -> list[str]:
 
 _DIM = "\033[2m"
 _RESET = "\033[0m\n\n"
+
+_CYAN = "\033[36m"
+_GREEN = "\033[32m"
+_RED = "\033[31m"
+_BOLD = "\033[1m"
+_ANSI_RESET = "\033[0m"
+
+
+def _format_tool_args(args: Any) -> str:
+    if isinstance(args, dict):
+        if not args:
+            return "(no args)"
+        return ", ".join(f"{key}={value!r}" for key, value in args.items())
+    return repr(args)
+
+
+def _preview(text: str, limit: int = 500) -> str:
+    text = text.strip()
+    if len(text) > limit:
+        return f"{text[:limit]}… ({len(text)} chars total)"
+    return text
+
+
+@wrap_tool_call
+def trace_tool_calls(request, handler):
+    """Print each tool execution to the terminal with a formatted trace."""
+    tool_call = request.tool_call
+    name = tool_call.get("name", "unknown")
+    args = tool_call.get("args", {})
+
+    print(
+        f"\n{_CYAN}{_BOLD}┌─ tool call → {name}{_ANSI_RESET}",
+        flush=True,
+    )
+    print(f"{_CYAN}│  args: {_ANSI_RESET}{_format_tool_args(args)}", flush=True)
+
+    try:
+        result = handler(request)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"{_RED}└─ error ← {name}: {exc}{_ANSI_RESET}\n",
+            flush=True,
+        )
+        raise
+
+    output = getattr(result, "content", result)
+    print(
+        f"{_GREEN}└─ result ← {name}{_ANSI_RESET}\n"
+        f"{_DIM}{_preview(_content_to_text(output))}{_ANSI_RESET}\n",
+        flush=True,
+    )
+    return result
 
 
 def _chunk_reasoning_text(token: Any) -> str:
@@ -171,9 +223,12 @@ def answer_question(
         llm,
         tools=tools,
         middleware=[
+            trace_tool_calls,
             SummarizationMiddleware(
-                model=summarization_llm, trigger=("tokens", 4000), keep=("messages", 10)
-            )
+                model=summarization_llm,
+                trigger=("tokens", 20000),
+                keep=("messages", 10),
+            ),
         ],
         system_prompt=system_prompt,
         checkpointer=checkpointer if checkpointer else None,

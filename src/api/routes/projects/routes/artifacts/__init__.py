@@ -570,6 +570,7 @@ async def generate_chunk_note_endpoint(
     project_id: str,
     artifact_id: str,
     chunk_id: str,
+    regenerate: bool = False,
     session: AsyncSession = Depends(get_session),
 ) -> ChunkNoteResponse:
     user = _require_user(request)
@@ -593,6 +594,18 @@ async def generate_chunk_note_endpoint(
     if target_index is None:
         raise HTTPException(status_code=404, detail="Chunk not found")
 
+    # Notes belong to the chunk/document, not to a project or user: documents
+    # (and their chunks) are globally deduplicated by the ingestion pipeline.
+    # A plain generate is idempotent — if a note already exists we return it
+    # as-is. An explicit ?regenerate=true forces a fresh note that replaces the
+    # shared one (Postgres row + Qdrant point).
+    existing_notes = await _get_notes_for_document(document.id, session)
+    existing_note = existing_notes.get(chunk_id)
+    if existing_note is not None and not regenerate:
+        return ChunkNoteResponse.ok(
+            data=ChunkNoteRead(chunk_id=chunk_id, content=existing_note.content)
+        )
+
     window = [_chunk_to_window_dict(chunk) for chunk, _ in source_chunks]
     prev_chunk = window[target_index - 1] if target_index > 0 else None
     target_chunk = window[target_index]
@@ -604,18 +617,16 @@ async def generate_chunk_note_endpoint(
         )
     except Exception as err:
         logger.exception(
-            "Failed to generate note for chunk_id={} (document_id={}, project_id={})",
+            "Failed to generate note for chunk_id={} (document_id={})",
             chunk_id,
             document.id,
-            project_id,
         )
         raise HTTPException(
             status_code=502, detail=f"Failed to generate note: {err}"
         ) from err
 
-    # Replace any prior note for this chunk (regenerate semantics).
-    existing_notes = await _get_notes_for_document(document.id, session)
-    existing_note = existing_notes.get(chunk_id)
+    # Regenerate replaces the existing note in place (Qdrant is replaced below
+    # via delete-then-add keyed on document_id + source_chunk_id).
     if existing_note is not None:
         await session.delete(existing_note)
 
@@ -626,7 +637,6 @@ async def generate_chunk_note_endpoint(
             "type": NOTE_CHUNK_TYPE,
             "source_chunk_id": chunk_id,
             "document_id": document.id,
-            "project_id": project_id,
         },
     )
     session.add(note_chunk)
@@ -636,7 +646,6 @@ async def generate_chunk_note_endpoint(
         await asyncio.to_thread(
             upsert_chunk_note_in_qdrant,
             document_id=document.id,
-            project_id=project_id,
             source_chunk_id=chunk_id,
             note_content=note_content,
             doc_sha256=document.sha256,

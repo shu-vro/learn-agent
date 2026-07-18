@@ -19,7 +19,6 @@ from src.vector_store.qdrant_store import build_hybrid_qdrant_store, client
 def upsert_chunk_note_in_qdrant(
     *,
     document_id: str,
-    project_id: str,
     source_chunk_id: str,
     note_content: str,
     doc_sha256: str | None = None,
@@ -27,8 +26,10 @@ def upsert_chunk_note_in_qdrant(
 ) -> None:
     """Replace any existing Qdrant note for the source chunk, then add the new one.
 
-    This is a blocking call (network + embeddings); run it in a thread when
-    invoked from async code.
+    Notes are scoped to the chunk/document only (documents are globally
+    deduplicated), so the identity is ``document_id + source_chunk_id`` with no
+    project/user dimension. This is a blocking call (network + embeddings); run
+    it in a thread when invoked from async code.
     """
     delete_filter = Filter(
         must=[
@@ -64,7 +65,6 @@ def upsert_chunk_note_in_qdrant(
                     "type": NOTE_CHUNK_TYPE,
                     "source_chunk_id": source_chunk_id,
                     "document_id": document_id,
-                    "project_id": project_id,
                     "doc_id": doc_sha256,
                 },
             )
