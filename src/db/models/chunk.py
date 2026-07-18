@@ -37,7 +37,9 @@ class Chunk(Base):
         nullable=False,
     )
 
-    chats = relationship("Chat", secondary="chats_chunks", back_populates="chunks")
+    chat_messages = relationship(
+        "ChatMessage", secondary="chat_messages_chunks", back_populates="chunks"
+    )
     documents = relationship(
         "Document", secondary=documents_chunks, back_populates="chunks"
     )

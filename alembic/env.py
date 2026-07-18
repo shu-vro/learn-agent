@@ -22,8 +22,6 @@ from src.db.models import (  # noqa: F401 — register tables on Base.metadata
     Thread,
     User,
 )
-from src.db.models.chat import chats_chunks  # noqa: F401
-from src.db.models.chunk import documents_chunks  # noqa: F401
 
 config = context.config
 

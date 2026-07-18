@@ -7,6 +7,7 @@ from src.db.models.thread import Thread
 from src.db.models.project import Project
 from src.utils.api.BaseResponse import BaseResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from src.api.routes.projects.routes.threads.routes.chat import router as chat_router
 
 
 class ThreadRead(BaseModel):
@@ -118,3 +119,6 @@ async def delete_thread(
     thread.visibility = False
     await session.commit()
     return BaseResponse[None].ok()
+
+
+router.include_router(chat_router)
