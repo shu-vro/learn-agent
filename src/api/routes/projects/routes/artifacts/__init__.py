@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -27,11 +28,15 @@ from src.db.models.chunk import (
     Chunk,
     coalesced_chunk_type,
     DEFAULT_CHUNK_TYPE,
+    IMAGE_CHUNK_TYPE,
+    NOTE_CHUNK_TYPE,
     documents_chunks,
 )
 from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
+from src.module.chunk_notes import upsert_chunk_note_in_qdrant
+from src.side_agents.note_generator_agent import generate_chunk_note
 from src.tasks.artifact_ingestion import process_artifact_upload
 from src.utils.ingestion_progress import get_ingestion_progress, set_ingestion_progress
 from src.utils.api.BaseResponse import BaseResponse
@@ -53,8 +58,19 @@ class ArtifactRead(BaseModel):
     ingestion_progress: int | None = None
 
 
+class ChunkNoteRead(BaseModel):
+    chunk_id: str
+    content: str
+
+
+class ArtifactNotesRead(BaseModel):
+    notes: Dict[str, str] = {}
+
+
 ArtifactsListResponse = BaseResponse[list[ArtifactRead]]
 ArtifactResponse = BaseResponse[ArtifactRead]
+ChunkNoteResponse = BaseResponse[ChunkNoteRead]
+ArtifactNotesResponse = BaseResponse[ArtifactNotesRead]
 
 
 def _suffix_for_upload(filename: str) -> str:
@@ -69,17 +85,17 @@ def _sanitize_stored_filename(filename: str) -> str:
     return cleaned[:200] or "file"
 
 
-async def _get_document_chunks(
+async def _get_source_chunks(
     document_id: str,
     session: AsyncSession,
 ) -> list[tuple[Chunk, int]]:
-    """Just fetches chunks from document."""
+    """Fetch displayable source chunks (text and image) in document order."""
     stmt = (
         select(Chunk, documents_chunks.c.order)
         .join(documents_chunks, documents_chunks.c.chunks_id == Chunk.id)
         .where(
             documents_chunks.c.document_id == document_id,
-            coalesced_chunk_type() == DEFAULT_CHUNK_TYPE,
+            coalesced_chunk_type().in_((DEFAULT_CHUNK_TYPE, IMAGE_CHUNK_TYPE)),
         )
         .order_by(documents_chunks.c.order.asc())
     )
@@ -87,16 +103,40 @@ async def _get_document_chunks(
     return list(result.all())
 
 
+async def _get_notes_for_document(
+    document_id: str,
+    session: AsyncSession,
+) -> dict[str, Chunk]:
+    stmt = select(Chunk).where(
+        Chunk.type == NOTE_CHUNK_TYPE,
+        Chunk.extra["document_id"].as_string() == document_id,
+    )
+    result = await session.execute(stmt)
+    notes_by_source: dict[str, Chunk] = {}
+    for note in result.scalars().all():
+        extra = note.extra or {}
+        source_id = extra.get("source_chunk_id")
+        if isinstance(source_id, str) and source_id:
+            notes_by_source[source_id] = note
+    return notes_by_source
+
+
 def _chunks_to_dict(
     chunks: list[tuple[Chunk, int]],
     *,
     doc_sha256: str | None,
 ) -> Dict[str, Any]:
+    """Serialize source chunks for the artifacts response.
+
+    Notes are intentionally excluded here; they are fetched and generated
+    on demand via the dedicated notes endpoints.
+    """
     ordered: Dict[str, Any] = {}
     for chunk, order in chunks:
         ordered[chunk.id] = {
             "content": rewrite_chunk_image_urls(chunk.content, doc_sha256),
             "order": order,
+            "type": chunk.type or DEFAULT_CHUNK_TYPE,
         }
     return ordered
 
@@ -274,14 +314,8 @@ async def _upload_single_artifact(
                 await session.refresh(project)
             except Exception:
                 pass
-            doc_chunks = await _get_document_chunks(document.id, session)
             return (
-                ArtifactRead(
-                    id=document.id,
-                    name=document.name,
-                    chunks=_chunks_to_dict(doc_chunks, doc_sha256=document.sha256),
-                    ingestion_status=document.ingestion_status,
-                ),
+                await _artifact_read_for_document(document, session),
                 False,
             )
         return (
@@ -332,10 +366,10 @@ async def _artifact_read_for_document(
 ) -> ArtifactRead:
     chunks: dict[str, Any] = {}
     if document.ingestion_status == "completed":
-        doc_chunks = await _get_document_chunks(document.id, session)
+        doc_chunks = await _get_source_chunks(document.id, session)
         chunks = _chunks_to_dict(doc_chunks, doc_sha256=document.sha256)
 
-    progress = (
+    ingestion_progress = (
         get_ingestion_progress(document.id)
         if document.ingestion_status == "processing"
         else None
@@ -345,9 +379,13 @@ async def _artifact_read_for_document(
         name=document.name,
         chunks=chunks,
         ingestion_status=document.ingestion_status,
-        ingestion_stage=progress.get("stage") if progress else None,
-        ingestion_stage_label=progress.get("label") if progress else None,
-        ingestion_progress=progress.get("progress") if progress else None,
+        ingestion_stage=ingestion_progress.get("stage") if ingestion_progress else None,
+        ingestion_stage_label=(
+            ingestion_progress.get("label") if ingestion_progress else None
+        ),
+        ingestion_progress=(
+            ingestion_progress.get("progress") if ingestion_progress else None
+        ),
     )
 
 
@@ -468,6 +506,152 @@ async def upload_project_artifacts(
             recreate_for_next = False
 
     return ArtifactsListResponse.ok(data=items)
+
+
+async def _load_scoped_document(
+    session: AsyncSession,
+    *,
+    project_id: str,
+    artifact_id: str,
+) -> Document:
+    stmt = (
+        select(Document)
+        .join(ProjectDocument, ProjectDocument.document_id == Document.id)
+        .where(
+            ProjectDocument.project_id == project_id,
+            Document.id == artifact_id,
+        )
+    )
+    result = await session.execute(stmt)
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return document
+
+
+def _chunk_to_window_dict(chunk: Chunk) -> dict[str, Any]:
+    return {
+        "id": chunk.id,
+        "type": chunk.type or DEFAULT_CHUNK_TYPE,
+        "content": chunk.content,
+        "extra": dict(chunk.extra or {}),
+    }
+
+
+@router.get(
+    "/{project_id}/artifacts/{artifact_id}/notes",
+    response_model=ArtifactNotesResponse,
+)
+async def get_artifact_notes(
+    request: Request,
+    project_id: str,
+    artifact_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> ArtifactNotesResponse:
+    user = _require_user(request)
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    document = await _load_scoped_document(
+        session, project_id=project_id, artifact_id=artifact_id
+    )
+    notes_by_source = await _get_notes_for_document(document.id, session)
+    notes = {source_id: note.content for source_id, note in notes_by_source.items()}
+    return ArtifactNotesResponse.ok(data=ArtifactNotesRead(notes=notes))
+
+
+@router.post(
+    "/{project_id}/artifacts/{artifact_id}/chunks/{chunk_id}/note",
+    response_model=ChunkNoteResponse,
+)
+async def generate_chunk_note_endpoint(
+    request: Request,
+    project_id: str,
+    artifact_id: str,
+    chunk_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> ChunkNoteResponse:
+    user = _require_user(request)
+    project = await Project.get_by_id_for_user(session, project_id, user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    document = await _load_scoped_document(
+        session, project_id=project_id, artifact_id=artifact_id
+    )
+    if document.ingestion_status != "completed":
+        raise HTTPException(
+            status_code=409, detail="Artifact is not ready for note generation."
+        )
+
+    source_chunks = await _get_source_chunks(document.id, session)
+    target_index = next(
+        (idx for idx, (chunk, _) in enumerate(source_chunks) if chunk.id == chunk_id),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+
+    window = [_chunk_to_window_dict(chunk) for chunk, _ in source_chunks]
+    prev_chunk = window[target_index - 1] if target_index > 0 else None
+    target_chunk = window[target_index]
+    next_chunk = window[target_index + 1] if target_index < len(window) - 1 else None
+
+    try:
+        note_content = await asyncio.to_thread(
+            generate_chunk_note, prev_chunk, target_chunk, next_chunk
+        )
+    except Exception as err:
+        logger.exception(
+            "Failed to generate note for chunk_id={} (document_id={}, project_id={})",
+            chunk_id,
+            document.id,
+            project_id,
+        )
+        raise HTTPException(
+            status_code=502, detail=f"Failed to generate note: {err}"
+        ) from err
+
+    # Replace any prior note for this chunk (regenerate semantics).
+    existing_notes = await _get_notes_for_document(document.id, session)
+    existing_note = existing_notes.get(chunk_id)
+    if existing_note is not None:
+        await session.delete(existing_note)
+
+    note_chunk = Chunk(
+        content=note_content,
+        type=NOTE_CHUNK_TYPE,
+        extra={
+            "type": NOTE_CHUNK_TYPE,
+            "source_chunk_id": chunk_id,
+            "document_id": document.id,
+            "project_id": project_id,
+        },
+    )
+    session.add(note_chunk)
+    await session.commit()
+
+    try:
+        await asyncio.to_thread(
+            upsert_chunk_note_in_qdrant,
+            document_id=document.id,
+            project_id=project_id,
+            source_chunk_id=chunk_id,
+            note_content=note_content,
+            doc_sha256=document.sha256,
+        )
+    except Exception:
+        # Note is persisted in Postgres; a Qdrant failure should not fail the request.
+        logger.exception(
+            "Failed to upsert note into Qdrant for chunk_id={} (document_id={})",
+            chunk_id,
+            document.id,
+        )
+
+    return ChunkNoteResponse.ok(
+        data=ChunkNoteRead(chunk_id=chunk_id, content=note_content)
+    )
 
 
 __all__ = ["router"]

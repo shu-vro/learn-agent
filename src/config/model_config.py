@@ -7,7 +7,7 @@ from enum import Enum
 
 from langchain.chat_models import init_chat_model, BaseChatModel
 
-from src.lib.omlx_chat import ChatOmlx
+from src.lib.omlx import ChatOmlx
 
 OMLX_BASE_URL = os.environ.get("OMLX_BASE_URL", "http://localhost:9999/v1")
 OMLX_API_KEY = os.environ.get("OMLX_API_KEY", "")
@@ -61,6 +61,14 @@ MODEL_CONFIGS = MappingProxyType(
             temperature=1,
             reasoning_effort=ReasoningEffort.HIGH,
         ),
+        # "openai:gpt-4.1-nano": Model(
+        #     provider="openai",
+        #     model="gpt-4.1-nano",
+        #     model_name="gpt-4.1-nano",
+        #     pricing={"input": 0.1, "output": 0.4, "input_cache_read": 0.025},
+        #     context_window=1000000,
+        #     temperature=1,
+        # ),
     }
 )
 

@@ -22,6 +22,7 @@ export type ChatMessageSeed = {
 export type ArtifactChunkEntry = {
   content: string;
   order: number;
+  type?: "text_chunk" | "image" | "note";
 };
 
 export type ArtifactSeed = {

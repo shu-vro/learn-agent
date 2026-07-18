@@ -7,6 +7,7 @@ import { mermaid } from "@streamdown/mermaid";
 import { type ComponentProps, memo } from "react";
 import { Streamdown } from "streamdown";
 
+import { normalizeMathDelimiters } from "@/lib/math-markdown";
 import { cn } from "@/lib/utils";
 
 const streamdownPlugins = { cjk, code, math, mermaid };
@@ -14,7 +15,7 @@ const streamdownPlugins = { cjk, code, math, mermaid };
 export type MessageResponseInnerProps = ComponentProps<typeof Streamdown>;
 
 export const MessageResponseInner = memo(
-  ({ className, ...props }: MessageResponseInnerProps) => (
+  ({ className, children, ...props }: MessageResponseInnerProps) => (
     <Streamdown
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -22,7 +23,11 @@ export const MessageResponseInner = memo(
       )}
       plugins={streamdownPlugins}
       {...props}
-    />
+    >
+      {typeof children === "string"
+        ? normalizeMathDelimiters(children)
+        : children}
+    </Streamdown>
   ),
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&

@@ -6,6 +6,7 @@ from typing import Any
 from langchain_core.messages import AIMessageChunk, BaseMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 
 OMLX_REASONING_EFFORT = os.environ.get("OMLX_REASONING_EFFORT", "high")
 
@@ -14,6 +15,9 @@ class ChatOmlx(ChatOpenAI):
     """OpenAI-compatible client for OMLX that preserves reasoning stream tokens."""
 
     def __init__(self, **kwargs: Any) -> None:
+        # Custom base URLs disable stream_usage by default in ChatOpenAI, but OMLX
+        # supports OpenAI-style stream_options.include_usage for token counts.
+        kwargs.setdefault("stream_usage", True)
         extra_body = dict(kwargs.pop("extra_body", None) or {})
         extra_body.setdefault("reasoning", {"effort": OMLX_REASONING_EFFORT})
         super().__init__(extra_body=extra_body, **kwargs)
@@ -42,3 +46,16 @@ class ChatOmlx(ChatOpenAI):
             )
 
         return generation_chunk
+
+
+class OmlxEmbeddings(OpenAIEmbeddings):
+    """OpenAI-compatible embeddings client for OMLX."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        # OMLX expects raw strings; LangChain's default path tokenizes with tiktoken
+        # and sends token id lists, which OMLX rejects with 422.
+        kwargs.setdefault("check_embedding_ctx_length", False)
+        super().__init__(**kwargs)
+
+
+__all__ = ["OmlxEmbeddings", "ChatOmlx"]

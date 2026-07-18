@@ -204,6 +204,37 @@ export async function deleteArtifact(
   return true;
 }
 
+export async function getArtifactNotes(
+  projectId: string,
+  artifactId: string,
+): Promise<Record<string, string>> {
+  const res = await get({
+    endpoint: `/projects/${projectId}/artifacts/${artifactId}/notes`,
+  });
+  if (res && typeof res === "object" && "notes" in res) {
+    const notes = (res as { notes?: unknown }).notes;
+    if (notes && typeof notes === "object") {
+      return notes as Record<string, string>;
+    }
+  }
+  return {};
+}
+
+export async function generateChunkNote(
+  projectId: string,
+  artifactId: string,
+  chunkId: string,
+): Promise<string | null> {
+  const res = await post({
+    endpoint: `/projects/${projectId}/artifacts/${artifactId}/chunks/${chunkId}/note`,
+    throwable: true,
+  });
+  if (res && typeof res === "object" && "content" in res) {
+    return String((res as { content: unknown }).content ?? "");
+  }
+  return null;
+}
+
 export function createLocalArtifact(name: string, text: string): Artifact {
   return {
     id: nanoid(),

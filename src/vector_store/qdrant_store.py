@@ -12,6 +12,7 @@ from qdrant_client.http.models import (
 )
 
 from src.config.constants import DEFAULT_EMBEDDING_MODEL
+from src.config.embedding_model_config import EMBEDDING_MODELS
 from src.config.env import (
     QDRANT_API_KEY,
     QDRANT_HOST,
@@ -41,9 +42,12 @@ def _get_collection_names(qdrant_client: QdrantClient) -> set[str]:
 
 
 @lru_cache(maxsize=8)
-def _get_embedding_dimension(model_name=None) -> int:
+def _get_embedding_dimension(model_name: str | None = None) -> int:
     if model_name is None:
         model_name = DEFAULT_EMBEDDING_MODEL
+    configured = EMBEDDING_MODELS.get(model_name)
+    if configured and configured.get("dimension"):
+        return configured["dimension"]
     return len(build_embeddings(model_name).embed_query("dimension probe"))
 
 

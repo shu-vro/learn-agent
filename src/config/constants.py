@@ -16,13 +16,15 @@ DEFAULT_ARTIFACTS_DIR = Path("data/artifacts")
 DEFAULT_DOWNLOADS_DIR = Path("data/downloads")
 # DEFAULT_EMBEDDING_MODEL = "hf:Octen/Octen-Embedding-0.6B"
 # DEFAULT_EMBEDDING_MODEL = "ollama:nomic-embed-text"
-DEFAULT_EMBEDDING_MODEL = "openai:text-embedding-3-small"
+DEFAULT_EMBEDDING_MODEL = "omlx:bge-m3-mlx-fp16"
+# DEFAULT_EMBEDDING_MODEL = "openai:text-embedding-3-small"
 # DEFAULT_VISION_MODEL = "ollama:gemma4:e2b"
 # DEFAULT_LLM_MODEL = "ollama:gemma4:e2b"
 # DEFAULT_PROJECT_NAME_AND_DESCRIPTION_MODEL = "ollama:gemma4:e2b"
 DEFAULT_VISION_MODEL = "omlx:gemma-4-e4b-it-4bit"
 DEFAULT_LLM_MODEL = "omlx:gemma-4-e4b-it-4bit"
 DEFAULT_PROJECT_NAME_AND_DESCRIPTION_MODEL = "omlx:gemma-4-e4b-it-4bit"
+DEFAULT_NOTE_GENERATION_MODEL = DEFAULT_PROJECT_NAME_AND_DESCRIPTION_MODEL
 # DEFAULT_LLM_MODEL = "openai:gpt-4.1-adf"
 DEFAULT_OCR_LIB = os.environ.get("DEFAULT_OCR_LIB", "local").strip().lower()
 if DEFAULT_OCR_LIB not in {"local", "llm"}:

@@ -7,6 +7,7 @@ from src.db.models.base import Base
 
 DEFAULT_CHUNK_TYPE = "text_chunk"
 IMAGE_CHUNK_TYPE = "image"
+NOTE_CHUNK_TYPE = "note"
 
 
 documents_chunks = Table(

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree, Geist, Geist_Mono } from "next/font/google";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/app-providers";
 import { cn } from "@/lib/utils";

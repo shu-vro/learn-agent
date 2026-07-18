@@ -32,6 +32,16 @@ EMBEDDING_MODELS = MappingProxyType(
                 "max_tokens": 8192,
             }
         ),
+        "omlx:bge-m3-mlx-fp16": MappingProxyType(
+            {
+                "provider": "omlx",
+                "model": "bge-m3-mlx-fp16",
+                "dimension": 1024,
+                "input": 0,
+                "output": 0,
+                "max_tokens": 8192,
+            }
+        ),
     }
 )
 

@@ -13,7 +13,6 @@ import {
   ArtifactHeader,
   ArtifactTitle,
 } from "@/components/ai-elements/artifact";
-import { MessageResponse } from "@/components/ai-elements/message";
 import {
   defaultIngestionPreferences,
   useAuth,
@@ -23,6 +22,7 @@ import {
   isArtifactInProgress,
 } from "@/components/chat/artifact-progress";
 import { useChatWorkspace } from "@/components/chat/chat-context";
+import { ChunkPreviewList } from "@/components/chat/chunk-preview-list";
 import {
   IngestionSettingsFields,
   type IngestionSettingsValue,
@@ -50,28 +50,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
-import {
-  type ArtifactChunks,
-  artifactChunksToMarkdown,
-} from "@/lib/artifact-chunks";
 import { cn } from "@/lib/utils";
-
-function artifactPreviewMarkdown(artifact: {
-  chunks: ArtifactChunks;
-  ingestion_status?: string;
-}): string {
-  const text = artifactChunksToMarkdown(artifact.chunks);
-  if (text) {
-    return text;
-  }
-  if (artifact.ingestion_status === "processing") {
-    return "_This document is being processed. It will appear here when ready._";
-  }
-  if (artifact.ingestion_status === "failed") {
-    return "_This document failed to process. Try uploading again._";
-  }
-  return "_No text content available for this file._";
-}
 
 function isDesktopViewport() {
   if (typeof window === "undefined") {
@@ -394,9 +373,11 @@ export function ArtifactsPanel({
                         <ArtifactProgress artifact={selected} />
                       </div>
                     ) : (
-                      <MessageResponse className="text-sm">
-                        {artifactPreviewMarkdown(selected)}
-                      </MessageResponse>
+                      <ChunkPreviewList
+                        chunks={selected.chunks}
+                        projectId={projectId}
+                        artifactId={selected.id}
+                      />
                     )}
                   </div>
                 </CollapsibleContent>
