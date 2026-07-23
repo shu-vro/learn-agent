@@ -1,9 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { ComponentProps } from "react";
-import type { Streamdown } from "streamdown";
 
+import type { MarkdownProps } from "@/components/markdown";
+
+/**
+ * AI-elements message markdown surface. Lazily loads the shared Markdown
+ * renderer (Streamdown + code / mermaid / math / cjk).
+ */
 const MessageResponseLazy = dynamic(
   () => import("./message-response-inner").then((m) => m.MessageResponseInner),
   {
@@ -14,7 +18,7 @@ const MessageResponseLazy = dynamic(
   },
 );
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
+export type MessageResponseProps = MarkdownProps;
 
 export function MessageResponse({ className, ...props }: MessageResponseProps) {
   return <MessageResponseLazy className={className} {...props} />;

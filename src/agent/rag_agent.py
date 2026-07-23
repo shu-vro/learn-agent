@@ -1,81 +1,40 @@
-from dataclasses import dataclass, field
-from pathlib import Path
+"""CLI adapters for the shared RAG agent core."""
+
+from __future__ import annotations
+
 from typing import Any, Literal
 
-from langchain_core.documents import Document
-from langchain_core.messages import (
-    HumanMessage,
-    AIMessage,
-    SystemMessage,
-    BaseMessage,
-)
-from langchain.agents.middleware import SummarizationMiddleware, wrap_tool_call
+from langchain.agents.middleware import wrap_tool_call
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.checkpoint.memory import BaseCheckpointSaver
 from langgraph.checkpoint.postgres import PostgresSaver
-from langchain.agents import create_agent
-from langchain_core.runnables import RunnableConfig
-from qdrant_client import models as qdrant_models
-from src.db import CONN_URL
 
-from src.config.constants import (
-    DEFAULT_ARTIFACTS_DIR,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_OCR_LIB,
-    DEFAULT_QDRANT_COLLECTION,
-    DEFAULT_PAPER_SOURCES,
-    DEFAULT_VISION_MODEL,
-    DEFAULT_LLM_MODEL,
+from src.agent.rag_core import (
+    RagAppConfig,
+    build_rag_agent,
+    content_to_text,
+    stream_rag_events,
 )
-from src.utils.usage_aggregator_callback import UsageAggregatorCallback
+from src.db import CONN_URL
 from src.utils.time_utils import measure_time
-from src.agent.tools.document_retriever import retrieve_context_tool
-from src.agent.tools.web_fetch import fetch_url
-from src.agent.tools.builtin_tools import youtube_search
-from src.agent.tools.duckduckgo_search import duckduckgo_search
-from src.agent.prompts import main_agent_system_prompt
-from src.config.model_config import model_selector
+from src.utils.usage_aggregator_callback import UsageAggregatorCallback
 
-
-@dataclass(slots=True)
-class RagAppConfig:
-    sources: list[str] = field(default_factory=lambda: list(DEFAULT_PAPER_SOURCES))
-    collection_name: str = DEFAULT_QDRANT_COLLECTION
-    artifacts_root: Path = DEFAULT_ARTIFACTS_DIR
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    llm_model: str = DEFAULT_LLM_MODEL
-    vision_model: str = DEFAULT_VISION_MODEL
-    equation_ocr_lib: str = DEFAULT_OCR_LIB
-    top_k: int = 5
-
-
-def _source_summary_lines(documents: list[Document]) -> list[str]:
-    """this is to print in console"""
-    lines: list[str] = []
-    for idx, doc in enumerate(documents, start=1):
-        meta = doc.metadata
-        lines.append(
-            " | ".join(
-                [
-                    f"#{idx}",
-                    f"type={meta.get('type', 'unknown')}",
-                    f"source={meta.get('source', 'unknown')}",
-                    f"page={meta.get('page', 'n/a')}",
-                    f"image={meta.get('path', 'n/a')}",
-                    f"similarity_score={meta.get('similarity_score', 'n/a')}",
-                ]
-            )
-        )
-    return lines
-
+# Re-export for callers that import RagAppConfig from this module.
+__all__ = [
+    "RagAppConfig",
+    "answer_question",
+    "interactive_chat",
+]
 
 _DIM = "\033[2m"
 _RESET = "\033[0m\n\n"
-
 _CYAN = "\033[36m"
 _GREEN = "\033[32m"
 _RED = "\033[31m"
 _BOLD = "\033[1m"
 _ANSI_RESET = "\033[0m"
+
+SUMMARIZATION_AGGREGATOR_KEY = "summarization_calls"
 
 
 def _format_tool_args(args: Any) -> str:
@@ -118,41 +77,10 @@ def trace_tool_calls(request, handler):
     output = getattr(result, "content", result)
     print(
         f"{_GREEN}└─ result ← {name}{_ANSI_RESET}\n"
-        f"{_DIM}{_preview(_content_to_text(output))}{_ANSI_RESET}\n",
+        f"{_DIM}{_preview(content_to_text(output))}{_ANSI_RESET}\n",
         flush=True,
     )
     return result
-
-
-def _chunk_reasoning_text(token: Any) -> str:
-    additional_kwargs = getattr(token, "additional_kwargs", None) or {}
-    reasoning = additional_kwargs.get("reasoning_content")
-    if reasoning is None:
-        return ""
-    return reasoning if isinstance(reasoning, str) else str(reasoning)
-
-
-def _content_to_text(content: Any) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                text_parts.append(item)
-                continue
-            if isinstance(item, dict):
-                if isinstance(item.get("text"), str):
-                    text_parts.append(item["text"])
-                    continue
-                if isinstance(item.get("content"), str):
-                    text_parts.append(item["content"])
-                    continue
-            text_parts.append(str(item))
-        return "\n".join(part for part in text_parts if part)
-    return str(content)
 
 
 @measure_time
@@ -165,145 +93,61 @@ def answer_question(
     usage_aggregator: UsageAggregatorCallback | None = UsageAggregatorCallback(
         "rag_agent_calls"
     ),
+    thread_id: str = "1",
 ):
-    """
-    Answers a question using retrieved context from the vector store and an LLM.
-    Args:
-        question: The question to answer.
-        config: RagAppConfig object containing configuration parameters.
-        mode: "ask" for one-off question answering, "chat" for interactive chat mode.
-        messages: Optional list to append the question and answer messages for chat mode.
-        usage_aggregator: Optional UsageAggregatorCallback to collect LLM usage metadata.
-    Returns:
-    """
-
+    """Answer a question via the shared RAG agent (CLI output)."""
     checkpointer = checkpointer if mode == "chat" else None
-    prompt = main_agent_system_prompt
-    system_prompt = SystemMessage(content=prompt)
 
-    SUMMARIZATION_AGGREGATOR_KEY = "summarization_calls"
-    summarization_aggregator: UsageAggregatorCallback = UsageAggregatorCallback(
-        SUMMARIZATION_AGGREGATOR_KEY
+    agent, summarization_aggregator = build_rag_agent(
+        config,
+        checkpointer=checkpointer,
+        usage_aggregator=usage_aggregator,
+        extra_middleware=[trace_tool_calls],
     )
-
-    llm = model_selector(
-        config.llm_model, callbacks=[usage_aggregator] if usage_aggregator else None
-    )
-
-    summarization_llm = model_selector(
-        config.llm_model,
-        temperature=0,
-        callbacks=[summarization_aggregator] if summarization_aggregator else None,
-    )
-
-    retrieve_context = retrieve_context_tool(
-        filters=qdrant_models.Filter(
-            must=[
-                qdrant_models.FieldCondition(
-                    key="metadata.doc_id",
-                    match=qdrant_models.MatchAny(
-                        any=[
-                            "444673994328f7be8aee9d96fb240596b6f254f06ebaa53a2673413a244198c9",  # pragma: allowlist secret
-                            "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",  # pragma: allowlist secret
-                        ]
-                    ),
-                ),
-            ]
-        )
-    )
-
-    tools = [
-        retrieve_context,
-        duckduckgo_search,
-        youtube_search,
-        fetch_url,
-    ]
-
-    agent = create_agent(
-        llm,
-        tools=tools,
-        middleware=[
-            trace_tool_calls,
-            SummarizationMiddleware(
-                model=summarization_llm,
-                trigger=("tokens", 20000),
-                keep=("messages", 10),
-            ),
-        ],
-        system_prompt=system_prompt,
-        checkpointer=checkpointer if checkpointer else None,
-    )
-
-    runnable_config: RunnableConfig = {"configurable": {"thread_id": "1"}}
-
-    # response = agent.invoke(
-    #     {"messages": (f"Question:\n{question}\n\n" f"Context:\n{context}\n\n")},
-    #     config=runnable_config,
-    # )
-    # print(response)
-
-    # answer_text = response.content if hasattr(response, "content") else str(response)
-
-    internal_messages = []
 
     answer_text = ""
-    reasoning_text = ""
     reasoning_section_open = False
-    pending_tool_calls: dict[str, dict[str, Any]] = {}
-    for chunk in agent.stream(
-        {"messages": (f"Question:\n{question}\n\n")},
-        config=runnable_config,
-        stream_mode=["messages", "updates"],
-        version="v2",
+    current_thinking_step: int | None = None
+
+    for event in stream_rag_events(
+        agent,
+        question=question,
+        thread_id=thread_id,
     ):
-        if chunk["type"] == "messages":
-            token, metadata = chunk["data"]
-            if metadata["langgraph_node"] and metadata["langgraph_node"] == "model":
-                reasoning_delta = _chunk_reasoning_text(token)
-                content_delta = _content_to_text(token.content)
-
-                if reasoning_delta:
-                    if not reasoning_section_open:
-                        print(f"\n{_DIM}--- thinking ---\n", end="", flush=True)
-                        reasoning_section_open = True
-                    print(reasoning_delta, end="", flush=True)
-                    reasoning_text += reasoning_delta
-
-                if content_delta:
-                    if reasoning_section_open:
-                        print(f"\n---{_RESET}\n", flush=True)
-                        reasoning_section_open = False
-                    print(content_delta, end="", flush=True)
-                    answer_text += content_delta
-
-        if chunk["type"] == "updates":
-            token = chunk["data"]
-            if token.get("SummarizationMiddleware.before_model"):
-                print("\n---------Summarizing Past Messages---------\n")
-
-            model_message = (token.get("model") or {}).get("messages", [None])[-1]
-            if isinstance(model_message, AIMessage):
-                if model_message.tool_calls:
-                    for tool_call in model_message.tool_calls:
-                        tool_call_id = tool_call.get("id")
-                        if tool_call_id:
-                            pending_tool_calls[tool_call_id] = {
-                                "name": tool_call.get("name", "unknown"),
-                                "args": tool_call.get("args", {}),
-                            }
-
-                if not answer_text:
-                    model_text = _content_to_text(model_message.content)
-                    if model_text:
-                        answer_text += model_text
+        if event.type == "thinking":
+            delta = event.data.get("delta", "")
+            step = int(event.data.get("step") or 0)
+            if current_thinking_step != step:
+                if reasoning_section_open:
+                    print(f"\n---{_RESET}", flush=True)
+                print(
+                    f"\n{_DIM}--- thinking (step {step + 1}) ---\n",
+                    end="",
+                    flush=True,
+                )
+                reasoning_section_open = True
+                current_thinking_step = step
+            print(delta, end="", flush=True)
+        elif event.type == "token":
+            delta = event.data.get("delta", "")
+            if reasoning_section_open:
+                print(f"\n---{_RESET}\n", flush=True)
+                reasoning_section_open = False
+                current_thinking_step = None
+            print(delta, end="", flush=True)
+            answer_text += delta
+        elif event.type == "tool":
+            if event.data.get("phase") == "start" and reasoning_section_open:
+                print(f"\n---{_RESET}\n", flush=True)
+                reasoning_section_open = False
+        elif event.type == "summarizing":
+            print("\n---------Summarizing Past Messages---------\n")
+        elif event.type == "done":
+            answer_text = event.data.get("answer", answer_text)
 
     if reasoning_section_open:
         print(f"\n---{_RESET}", flush=True)
 
-    print(internal_messages)
-    # print("\n\nSources:")
-
-    # show the cost
     if mode == "ask":
         print(
             "\nAggregated Usage Metadata:",
@@ -322,7 +166,6 @@ def answer_question(
     if messages is not None:
         messages.append(HumanMessage(content=question))
         messages.append(AIMessage(content=answer_text))
-    pass
 
 
 def interactive_chat(config: RagAppConfig) -> None:

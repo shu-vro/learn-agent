@@ -1,3 +1,4 @@
+import { EventSourcePolyfill } from "event-source-polyfill";
 import { nanoid } from "nanoid";
 import {
   appendIngestionToFormData,
@@ -5,16 +6,112 @@ import {
 } from "@/lib/api/preferences";
 import {
   type ArtifactSeed,
-  type ChatMessageSeed,
   SEED_MESSAGES_BY_THREAD,
   SEED_THREADS,
   type ThreadSeed,
 } from "@/lib/dummy/seed";
 import { del, get, patch, post } from "@/utils/fetch";
 
+// Ensure EventSource exists in older browsers (GET-only; POST chat uses fetch below).
+if (typeof window !== "undefined" && !("EventSource" in window)) {
+  (
+    window as unknown as { EventSource: typeof EventSourcePolyfill }
+  ).EventSource = EventSourcePolyfill;
+}
+
 export type Thread = ThreadSeed;
-export type ChatMessage = ChatMessageSeed;
 export type Artifact = ArtifactSeed;
+
+export type ChatToolCall = {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+  state: "input-available" | "output-available" | "output-error";
+  step?: number;
+};
+
+export type ChatThinkingStep = {
+  id: string;
+  step: number;
+  text: string;
+};
+
+/** Ordered agent loop: think → tools → think → … → answer */
+export type ChatTimelineItem =
+  | ({ kind: "thinking" } & ChatThinkingStep)
+  | ({ kind: "tool" } & ChatToolCall);
+
+export type ChatBranch = {
+  id: string;
+  content: string;
+  timeline?: ChatTimelineItem[];
+  /** @deprecated prefer timeline */
+  thinking?: string;
+  /** @deprecated prefer timeline */
+  tools?: ChatToolCall[];
+  streaming?: boolean;
+};
+
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  chatId?: string;
+  groupId?: string;
+  selection?: string | null;
+  referenceId?: string | null;
+  branches?: ChatBranch[];
+  activeBranch?: number;
+  timeline?: ChatTimelineItem[];
+  thinking?: string;
+  tools?: ChatToolCall[];
+  streaming?: boolean;
+};
+
+export type ChatSendOptions = {
+  query?: string;
+  threadId?: string | null;
+  messageId?: string | null;
+  referenceId?: string | null;
+  selection?: string | null;
+};
+
+export type ChatStreamHandlers = {
+  onEvent: (event: string, data: Record<string, unknown>) => void;
+  onError?: (error: Error) => void;
+  onDone?: () => void;
+};
+
+type ApiThinking = { id: string; thinking: string; created_at?: string };
+type ApiTool = {
+  id: string;
+  tool_name: string;
+  tool_parameters: Record<string, unknown>;
+  tool_result: unknown;
+  created_at?: string;
+};
+type ApiChatMessage = {
+  id: string;
+  chat_id: string;
+  message: string;
+  selection?: string | null;
+  reference_id?: string | null;
+  thinking_messages?: ApiThinking[];
+  tool_messages?: ApiTool[];
+};
+type ApiChat = {
+  id: string;
+  thread_id: string;
+  type: string;
+  group_id?: string | null;
+  messages: ApiChatMessage[];
+};
+type ApiTurn = {
+  group_id: string;
+  user: ApiChat | null;
+  assistant: ApiChat | null;
+};
 
 function isArtifact(value: unknown): value is Artifact {
   return (
@@ -49,6 +146,92 @@ function isArtifactList(value: unknown): value is Artifact[] {
 
 function isThreadList(value: unknown): value is Thread[] {
   return Array.isArray(value) && value.every(isThread);
+}
+
+function mapTool(tool: ApiTool): ChatToolCall {
+  return {
+    id: tool.id,
+    name: tool.tool_name,
+    args:
+      tool.tool_parameters && typeof tool.tool_parameters === "object"
+        ? tool.tool_parameters
+        : {},
+    result: tool.tool_result,
+    state: "output-available",
+  };
+}
+
+function mapTimeline(msg: ApiChatMessage): ChatTimelineItem[] {
+  const thinking = (msg.thinking_messages ?? []).map((t, index) => ({
+    kind: "thinking" as const,
+    id: t.id,
+    step: index,
+    text: t.thinking,
+    at: t.created_at ?? "",
+  }));
+  const tools = (msg.tool_messages ?? []).map((t) => ({
+    kind: "tool" as const,
+    ...mapTool(t),
+    at: t.created_at ?? "",
+  }));
+  return [...thinking, ...tools]
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .map(({ at: _at, ...item }) => item);
+}
+
+function mapBranch(msg: ApiChatMessage): ChatBranch {
+  const timeline = mapTimeline(msg);
+  const thinkingParts = timeline
+    .filter(
+      (i): i is Extract<ChatTimelineItem, { kind: "thinking" }> =>
+        i.kind === "thinking",
+    )
+    .map((i) => i.text);
+  const tools = timeline.filter(
+    (i): i is Extract<ChatTimelineItem, { kind: "tool" }> => i.kind === "tool",
+  );
+  return {
+    id: msg.id,
+    content: msg.message,
+    timeline,
+    thinking: thinkingParts.join("\n\n"),
+    tools,
+  };
+}
+
+export function turnsToMessages(turns: ApiTurn[]): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  for (const turn of turns) {
+    if (turn.user?.messages?.[0]) {
+      const um = turn.user.messages[0];
+      messages.push({
+        id: um.id,
+        role: "user",
+        content: um.message,
+        chatId: turn.user.id,
+        groupId: turn.group_id,
+        selection: um.selection,
+        referenceId: um.reference_id,
+      });
+    }
+    if (turn.assistant) {
+      const branches = (turn.assistant.messages ?? []).map(mapBranch);
+      const active = Math.max(0, branches.length - 1);
+      const current = branches[active];
+      messages.push({
+        id: turn.assistant.id,
+        role: "assistant",
+        content: current?.content ?? "",
+        chatId: turn.assistant.id,
+        groupId: turn.group_id,
+        branches,
+        activeBranch: active,
+        thinking: current?.thinking,
+        tools: current?.tools,
+      });
+    }
+  }
+  return messages;
 }
 
 export function threadDisplayName(thread: Thread): string {
@@ -107,14 +290,130 @@ export async function deleteThread(
   return true;
 }
 
-export async function listMessages(threadId: string): Promise<ChatMessage[]> {
-  const res = await get({ endpoint: `/threads/${threadId}/messages` });
-  if (Array.isArray(res) && res.length && "role" in (res[0] as object)) {
-    return res as ChatMessage[];
+export async function listMessages(
+  projectId: string | null | undefined,
+  threadId: string,
+): Promise<ChatMessage[]> {
+  if (!projectId) {
+    return (
+      SEED_MESSAGES_BY_THREAD[threadId] ??
+      SEED_MESSAGES_BY_THREAD["t-1"] ??
+      []
+    ).map((m) => ({ ...m }));
   }
-  return [
-    ...(SEED_MESSAGES_BY_THREAD[threadId] ?? SEED_MESSAGES_BY_THREAD["t-1"]),
-  ];
+  const res = await get({
+    endpoint: `/projects/${projectId}/threads/${threadId}/chats`,
+  });
+  if (Array.isArray(res)) {
+    return turnsToMessages(res as ApiTurn[]);
+  }
+  return [];
+}
+
+export function streamChat(
+  projectId: string,
+  options: ChatSendOptions,
+  handlers: ChatStreamHandlers,
+): () => void {
+  const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+  const url = `${baseUrl}/api/v1/projects/${projectId}/chats`;
+
+  const body: Record<string, string> = {};
+  if (options.query) body.query = options.query;
+  if (options.threadId) body.thread_id = options.threadId;
+  if (options.messageId) body.message_id = options.messageId;
+  if (options.referenceId) body.reference_id = options.referenceId;
+  if (options.selection) body.selection = options.selection;
+
+  const controller = new AbortController();
+  let closed = false;
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    controller.abort();
+  };
+
+  // event-source-polyfill is GET-only; POST SSE uses fetch + stream parsing.
+  (async () => {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(body),
+        credentials: "include",
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Chat stream failed (${response.status})`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!closed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sep = buffer.indexOf("\n\n");
+        while (sep >= 0) {
+          const rawEvent = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          sep = buffer.indexOf("\n\n");
+
+          let eventName = "message";
+          const dataLines: string[] = [];
+          for (const line of rawEvent.split("\n")) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+          if (!dataLines.length) continue;
+
+          try {
+            const parsed = JSON.parse(dataLines.join("\n")) as Record<
+              string,
+              unknown
+            >;
+            handlers.onEvent(eventName, parsed);
+            if (eventName === "done" || eventName === "error") {
+              close();
+              handlers.onDone?.();
+              return;
+            }
+          } catch (err) {
+            handlers.onError?.(
+              err instanceof Error
+                ? err
+                : new Error("Failed to parse SSE event"),
+            );
+          }
+        }
+      }
+
+      if (!closed) {
+        handlers.onDone?.();
+      }
+    } catch (err) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      handlers.onError?.(
+        err instanceof Error ? err : new Error("Chat stream connection error"),
+      );
+      handlers.onDone?.();
+    }
+  })();
+
+  return close;
 }
 
 export async function listArtifacts(

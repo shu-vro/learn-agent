@@ -86,9 +86,11 @@ const PromptInputAttachmentsDisplay = () => {
 export const ChatPrompt = ({
   onSubmit,
   globalDrop = true,
+  disabled = false,
 }: {
   onSubmit: (text: string, e: FormEvent<HTMLFormElement>) => void;
   globalDrop?: boolean;
+  disabled?: boolean;
 }) => {
   const {
     models,
@@ -105,6 +107,9 @@ export const ChatPrompt = ({
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, event: FormEvent<HTMLFormElement>) => {
+      if (disabled) {
+        return;
+      }
       const hasText = Boolean(message.text);
       const hasAttachments = Boolean(message.files?.length);
 
@@ -124,15 +129,17 @@ export const ChatPrompt = ({
         setStatus("ready");
       }, STREAMING_TIMEOUT);
     },
-    [onSubmit],
+    [disabled, onSubmit],
   );
+
+  const submitStatus = disabled ? "streaming" : status;
 
   return (
     <div className="size-full">
       <PromptInput globalDrop={globalDrop} multiple onSubmit={handleSubmit}>
         <PromptInputAttachmentsDisplay />
         <PromptInputBody>
-          <PromptInputTextarea />
+          <PromptInputTextarea disabled={disabled} />
         </PromptInputBody>
         <PromptInputFooter className="items-start">
           <PromptInputTools className="min-w-0 flex-wrap">
@@ -157,7 +164,7 @@ export const ChatPrompt = ({
               />
             ) : null}
           </PromptInputTools>
-          <PromptInputSubmit status={status} />
+          <PromptInputSubmit status={submitStatus} disabled={disabled} />
         </PromptInputFooter>
       </PromptInput>
     </div>

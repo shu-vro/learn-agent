@@ -23,8 +23,8 @@
 
 9. [x] add support for uploading and handling multiple artifacts in a single project on a single upload
 10. [x] add model picker preset with reasoning settings. also add this in user's settings for preferences. user can change default model and it will load next time user goes to /chat.
-11. [ ] problem: if a service goes down, everything goes down. for example, if qdrant goes down, users can't even see their other threads.
-12. [ ] a feature: it will process each chunk of the document in llm and generate notes on it. save it in vector db again, with also in the chunk section in the database.
+11. [x] problem: if a service goes down, everything goes down. for example, if qdrant goes down, users can't even see their other threads.
+12. [x] a feature: it will process each chunk of the document in llm and generate notes on it. save it in vector db again, with also in the chunk section in the database.
         process:
     - when user uploads a document, it generally makes chunks out of it. after that happens, i want that a background job will run by taking consecutive 3 chunks together using sliding window, pass them in llm and generating notes based on those 3 chunks, where the 2nd one will be the main one and the target note will be about the 2nd one. then we will save this note with all the other chunks, with the type of NOTE_CHUNK_TYPE. users will not wait for notes. when notes will be generated, user can see them. beside every chunk, there will be a note button. when clicked, the note will be shown. make a settings section which will imply user wants to generate notes out of chunks of documents. if yes, the background job will run in the background and user can continue with their work. make sure that concurrency is used to generate notes for all the chunks. at most 7 concurrent jobs will run. the number 7 here will come from src.config.constants.MAX_CONCURRENT_NOTES_GENERATION.
 
@@ -41,3 +41,5 @@
 
     also, if chunks are basically images and texts, make sure to generate the notes for the images as well.
     remember, question is an optional yet important part. if generated, make sure they are hard as university final exams or phd levels. which will really let the user understand the content better.
+
+- [ ] add multimodal support for rag_agent.py

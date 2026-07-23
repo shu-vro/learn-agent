@@ -32,6 +32,24 @@ def print(*args, **kwargs):
     log_level = str(kwargs.pop("log_level", "info")).upper()
 
     # Preserve original print behavior for unsupported kwargs or non-line prints.
+    args = list(args)
+    firstarg = args[0]
+
+    log_level = log_level.upper()
+
+    if type(firstarg) is str and log_level == "SUCCESS":
+        firstarg = f"[green]{firstarg}[/green]"
+    elif type(firstarg) is str and log_level == "ERROR":
+        firstarg = f"[red]{firstarg}[/red]"
+    elif type(firstarg) is str and log_level == "WARNING":
+        firstarg = f"[yellow]{firstarg}[/yellow]"
+    elif type(firstarg) is str and log_level == "INFO":
+        firstarg = f"[blue]{firstarg}[/blue]"
+    elif type(firstarg) is str and log_level == "DEBUG":
+        firstarg = f"[purple]{firstarg}[/purple]"
+
+    args[0] = firstarg
+
     if kwargs or end != "\n":
         _original_print(*args, sep=sep, end=end, file=file, flush=flush)
         return

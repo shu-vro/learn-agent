@@ -14,6 +14,8 @@ import {
 import {
   type Artifact,
   type ChatMessage,
+  type ChatTimelineItem,
+  type ChatToolCall,
   createLocalArtifact,
   createThread as createThreadRemote,
   deleteThread as deleteThreadRemote,
@@ -21,18 +23,27 @@ import {
   listArtifacts,
   listMessages,
   listThreads,
+  streamChat,
   type Thread,
   updateThread as updateThreadRemote,
   uploadArtifacts,
 } from "@/lib/api/chat";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
 
+type SendMessageOptions = {
+  selection?: string | null;
+  referenceId?: string | null;
+};
+
 type ChatWorkspaceValue = {
   threads: Thread[];
   activeThreadId: string;
   setActiveThreadId: (id: string) => void;
   messages: ChatMessage[];
-  appendUserMessage: (text: string) => void;
+  appendUserMessage: (text: string, options?: SendMessageOptions) => void;
+  regenerateMessage: (assistantChatId: string, messageId: string) => void;
+  setActiveBranch: (assistantChatId: string, index: number) => void;
+  isStreaming: boolean;
   newThread: () => void;
   renameThread: (threadId: string, name: string) => Promise<void>;
   deleteThread: (threadId: string) => Promise<void>;
@@ -62,8 +73,73 @@ export function useChatWorkspace() {
   return ctx;
 }
 
-const assistantPlaceholder =
-  "Here is a **placeholder** reply. Wire your model here when the backend is ready.";
+function updateThreadMessages(
+  prev: Record<string, ChatMessage[]>,
+  threadId: string,
+  updater: (messages: ChatMessage[]) => ChatMessage[],
+): Record<string, ChatMessage[]> {
+  return {
+    ...prev,
+    [threadId]: updater(prev[threadId] ?? []),
+  };
+}
+
+function patchAssistantBranch(
+  messages: ChatMessage[],
+  assistantChatId: string,
+  branchId: string,
+  patch: Partial<{
+    content: string;
+    timeline: ChatTimelineItem[];
+    thinking: string;
+    tools: ChatToolCall[];
+    streaming: boolean;
+  }>,
+): ChatMessage[] {
+  return messages.map((msg) => {
+    if (msg.id !== assistantChatId || msg.role !== "assistant") {
+      return msg;
+    }
+    const branches = [...(msg.branches ?? [])];
+    const idx = branches.findIndex((b) => b.id === branchId);
+    if (idx < 0) {
+      return msg;
+    }
+    const nextBranch = { ...branches[idx], ...patch };
+    branches[idx] = nextBranch;
+    const active = msg.activeBranch ?? idx;
+    const current = branches[active] ?? nextBranch;
+    return {
+      ...msg,
+      branches,
+      content: current.content,
+      timeline: current.timeline,
+      thinking: current.thinking,
+      tools: current.tools,
+      streaming: current.streaming,
+    };
+  });
+}
+
+function syncBranchDerived<T extends { timeline?: ChatTimelineItem[] }>(
+  branch: T,
+): T & {
+  thinking: string;
+  tools: Extract<ChatTimelineItem, { kind: "tool" }>[];
+} {
+  const timeline = branch.timeline ?? [];
+  return {
+    ...branch,
+    thinking: timeline
+      .filter((i) => i.kind === "thinking")
+      .map((i) => i.text)
+      .join("\n\n"),
+    tools: timeline.filter(
+      (i): i is Extract<ChatTimelineItem, { kind: "tool" }> =>
+        i.kind === "tool",
+    ),
+  };
+}
 
 export function ChatWorkspaceProvider({
   children,
@@ -81,6 +157,8 @@ export function ChatWorkspaceProvider({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +175,7 @@ export function ChatWorkspaceProvider({
       setActiveThreadId(firstId);
       const nextMsgs: Record<string, ChatMessage[]> = {};
       for (const th of t) {
-        nextMsgs[th.id] = await listMessages(th.id);
+        nextMsgs[th.id] = await listMessages(projectId, th.id);
       }
       if (cancelled) {
         return;
@@ -125,28 +203,21 @@ export function ChatWorkspaceProvider({
     if (!projectId || !processingArtifactKey) {
       return;
     }
-
     let cancelled = false;
 
     const poll = async () => {
-      for (const artifactId of processingArtifactIdsRef.current) {
-        if (cancelled) {
-          return;
-        }
-        const updated = await getArtifactIngestionStatus(projectId, artifactId);
-        if (!updated || cancelled) {
+      const ids = processingArtifactIdsRef.current;
+      for (const id of ids) {
+        const updated = await getArtifactIngestionStatus(projectId, id);
+        if (cancelled || !updated) {
           continue;
         }
         setArtifacts((prev) => {
           const existing = prev.find((artifact) => artifact.id === updated.id);
-          if (!existing) {
-            return prev;
-          }
           if (
+            existing &&
             existing.ingestion_status === updated.ingestion_status &&
-            existing.name === updated.name &&
             existing.ingestion_stage === updated.ingestion_stage &&
-            existing.ingestion_stage_label === updated.ingestion_stage_label &&
             existing.ingestion_progress === updated.ingestion_progress &&
             Object.keys(existing.chunks).length ===
               Object.keys(updated.chunks).length
@@ -173,30 +244,454 @@ export function ChatWorkspaceProvider({
 
   const messages = messagesByThread[activeThreadId] ?? [];
 
-  const appendUserMessage = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || !activeThreadId) {
+  const runStream = useCallback(
+    (opts: {
+      query?: string;
+      threadId: string | null;
+      messageId?: string;
+      selection?: string | null;
+      referenceId?: string | null;
+      optimisticThreadId?: string;
+    }) => {
+      if (!projectId) {
         return;
       }
-      const userMsg: ChatMessage = {
-        id: nanoid(),
-        role: "user",
-        content: trimmed,
-      };
-      const assistantMsg: ChatMessage = {
-        id: nanoid(),
-        role: "assistant",
-        content: assistantPlaceholder,
-      };
-      setMessagesByThread((prev) => ({
-        ...prev,
-        [activeThreadId]: [
-          ...(prev[activeThreadId] ?? []),
-          userMsg,
-          assistantMsg,
-        ],
-      }));
+      abortStreamRef.current?.();
+      setIsStreaming(true);
+
+      let workingThreadId = opts.optimisticThreadId ?? opts.threadId ?? "";
+      let assistantChatId = "";
+      let branchId = "";
+
+      const stop = streamChat(
+        projectId,
+        {
+          query: opts.query,
+          threadId: opts.threadId,
+          messageId: opts.messageId,
+          selection: opts.selection,
+          referenceId: opts.referenceId,
+        },
+        {
+          onEvent: (event, data) => {
+            if (event === "thread") {
+              const thread = data.thread as Thread | undefined;
+              if (thread?.id) {
+                workingThreadId = thread.id;
+                setThreads((prev) => {
+                  const exists = prev.some((t) => t.id === thread.id);
+                  if (exists) {
+                    return prev.map((t) =>
+                      t.id === thread.id ? { ...t, ...thread } : t,
+                    );
+                  }
+                  return [...prev, thread];
+                });
+                setActiveThreadId(thread.id);
+                setMessagesByThread((prev) => {
+                  if (prev[thread.id]) {
+                    return prev;
+                  }
+                  const fromKey = opts.optimisticThreadId;
+                  if (fromKey && prev[fromKey]) {
+                    const next = { ...prev };
+                    next[thread.id] = next[fromKey];
+                    delete next[fromKey];
+                    return next;
+                  }
+                  return { ...prev, [thread.id]: [] };
+                });
+              }
+            }
+
+            if (event === "user_message") {
+              const message = data.message as {
+                id: string;
+                chat_id: string;
+                message: string;
+                selection?: string | null;
+                reference_id?: string | null;
+              };
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) => {
+                  const withoutTemp = msgs.filter(
+                    (m) => !(m.role === "user" && m.id.startsWith("temp-")),
+                  );
+                  if (withoutTemp.some((m) => m.id === message.id)) {
+                    return withoutTemp;
+                  }
+                  return [
+                    ...withoutTemp,
+                    {
+                      id: message.id,
+                      role: "user" as const,
+                      content: message.message,
+                      chatId: message.chat_id,
+                      selection: message.selection,
+                      referenceId: message.reference_id,
+                    },
+                  ];
+                }),
+              );
+            }
+
+            if (event === "assistant_message") {
+              assistantChatId = String(data.chat_id ?? "");
+              branchId = String(data.message_id ?? "");
+              const regenerate = Boolean(data.regenerate);
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) => {
+                  const cleaned = msgs.filter(
+                    (m) =>
+                      !(m.role === "assistant" && m.id.startsWith("temp-")),
+                  );
+                  if (regenerate) {
+                    return cleaned.map((m) => {
+                      if (m.id !== assistantChatId) {
+                        return m;
+                      }
+                      const branches = [
+                        ...(m.branches ?? []),
+                        {
+                          id: branchId,
+                          content: "",
+                          timeline: [],
+                          thinking: "",
+                          tools: [],
+                          streaming: true,
+                        },
+                      ];
+                      const activeBranch = branches.length - 1;
+                      return {
+                        ...m,
+                        branches,
+                        activeBranch,
+                        content: "",
+                        timeline: [],
+                        thinking: "",
+                        tools: [],
+                        streaming: true,
+                      };
+                    });
+                  }
+                  if (cleaned.some((m) => m.id === assistantChatId)) {
+                    return cleaned;
+                  }
+                  return [
+                    ...cleaned,
+                    {
+                      id: assistantChatId,
+                      role: "assistant" as const,
+                      content: "",
+                      chatId: assistantChatId,
+                      branches: [
+                        {
+                          id: branchId,
+                          content: "",
+                          timeline: [],
+                          thinking: "",
+                          tools: [],
+                          streaming: true,
+                        },
+                      ],
+                      activeBranch: 0,
+                      timeline: [],
+                      streaming: true,
+                    },
+                  ];
+                }),
+              );
+            }
+
+            if (event === "thinking" && assistantChatId && branchId) {
+              const delta = String(data.delta ?? "");
+              const step = Number(data.step ?? 0);
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) =>
+                  msgs.map((msg) => {
+                    if (msg.id !== assistantChatId) return msg;
+                    const branches = [...(msg.branches ?? [])];
+                    const idx = branches.findIndex((b) => b.id === branchId);
+                    if (idx < 0) return msg;
+                    const timeline = [...(branches[idx].timeline ?? [])];
+                    const existingIdx = timeline.findIndex(
+                      (i) => i.kind === "thinking" && i.step === step,
+                    );
+                    if (existingIdx >= 0) {
+                      const cur = timeline[existingIdx];
+                      if (cur.kind === "thinking") {
+                        timeline[existingIdx] = {
+                          ...cur,
+                          text: `${cur.text}${delta}`,
+                        };
+                      }
+                    } else {
+                      timeline.push({
+                        kind: "thinking",
+                        id: `think-${step}`,
+                        step,
+                        text: delta,
+                      });
+                    }
+                    const nextBranch = syncBranchDerived({
+                      ...branches[idx],
+                      timeline,
+                    });
+                    branches[idx] = nextBranch;
+                    const active = msg.activeBranch ?? idx;
+                    return {
+                      ...msg,
+                      branches,
+                      timeline: active === idx ? timeline : msg.timeline,
+                      thinking:
+                        active === idx ? nextBranch.thinking : msg.thinking,
+                      tools: active === idx ? nextBranch.tools : msg.tools,
+                    };
+                  }),
+                ),
+              );
+            }
+
+            if (event === "token" && assistantChatId && branchId) {
+              const delta = String(data.delta ?? "");
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) =>
+                  msgs.map((msg) => {
+                    if (msg.id !== assistantChatId) return msg;
+                    const branches = [...(msg.branches ?? [])];
+                    const idx = branches.findIndex((b) => b.id === branchId);
+                    if (idx < 0) return msg;
+                    const content = `${branches[idx].content}${delta}`;
+                    branches[idx] = { ...branches[idx], content };
+                    const active = msg.activeBranch ?? idx;
+                    return {
+                      ...msg,
+                      branches,
+                      content: active === idx ? content : msg.content,
+                    };
+                  }),
+                ),
+              );
+            }
+
+            if (event === "tool" && assistantChatId && branchId) {
+              const phase = String(data.phase ?? "");
+              const toolId = String(data.id ?? nanoid());
+              const step = Number(data.step ?? 0);
+              const name = String(data.name ?? "tool");
+              const args =
+                data.args && typeof data.args === "object"
+                  ? (data.args as Record<string, unknown>)
+                  : {};
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) =>
+                  msgs.map((msg) => {
+                    if (msg.id !== assistantChatId) return msg;
+                    const branches = [...(msg.branches ?? [])];
+                    const idx = branches.findIndex((b) => b.id === branchId);
+                    if (idx < 0) return msg;
+                    const timeline = [...(branches[idx].timeline ?? [])];
+                    if (phase === "start") {
+                      timeline.push({
+                        kind: "tool",
+                        id: toolId,
+                        name,
+                        args,
+                        state: "input-available",
+                        step,
+                      });
+                    } else if (phase === "result") {
+                      const existing = timeline.findIndex(
+                        (t) => t.kind === "tool" && t.id === toolId,
+                      );
+                      const next: ChatTimelineItem = {
+                        kind: "tool",
+                        id: toolId,
+                        name,
+                        args,
+                        result: data.result,
+                        state: "output-available",
+                        step,
+                      };
+                      if (existing >= 0) {
+                        timeline[existing] = next;
+                      } else {
+                        timeline.push(next);
+                      }
+                    }
+                    const nextBranch = syncBranchDerived({
+                      ...branches[idx],
+                      timeline,
+                    });
+                    branches[idx] = nextBranch;
+                    const active = msg.activeBranch ?? idx;
+                    return {
+                      ...msg,
+                      branches,
+                      timeline: active === idx ? timeline : msg.timeline,
+                      thinking:
+                        active === idx ? nextBranch.thinking : msg.thinking,
+                      tools: active === idx ? nextBranch.tools : msg.tools,
+                    };
+                  }),
+                ),
+              );
+            }
+
+            if (event === "done" && assistantChatId && branchId) {
+              const finalText = String(data.message ?? "");
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) =>
+                  patchAssistantBranch(msgs, assistantChatId, branchId, {
+                    content: finalText || undefined,
+                    streaming: false,
+                  }).map((msg) =>
+                    msg.id === assistantChatId
+                      ? { ...msg, streaming: false }
+                      : msg,
+                  ),
+                ),
+              );
+            }
+
+            if (event === "error") {
+              const message = String(data.message ?? "Chat failed");
+              setMessagesByThread((prev) =>
+                updateThreadMessages(prev, workingThreadId, (msgs) =>
+                  msgs.map((msg) => {
+                    if (msg.id !== assistantChatId) return msg;
+                    const content = msg.content || `*Error:* ${message}`;
+                    return { ...msg, content, streaming: false };
+                  }),
+                ),
+              );
+            }
+          },
+          onError: () => {
+            setIsStreaming(false);
+          },
+          onDone: () => {
+            setIsStreaming(false);
+            abortStreamRef.current = null;
+          },
+        },
+      );
+      abortStreamRef.current = stop;
+    },
+    [projectId],
+  );
+
+  const appendUserMessage = useCallback(
+    (text: string, options?: SendMessageOptions) => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      if (!projectId) {
+        if (!activeThreadId) return;
+        const userMsg: ChatMessage = {
+          id: nanoid(),
+          role: "user",
+          content: trimmed,
+          selection: options?.selection,
+          referenceId: options?.referenceId,
+        };
+        const assistantMsg: ChatMessage = {
+          id: nanoid(),
+          role: "assistant",
+          content:
+            "Connect to a project to stream real replies from the RAG agent.",
+        };
+        setMessagesByThread((prev) => ({
+          ...prev,
+          [activeThreadId]: [
+            ...(prev[activeThreadId] ?? []),
+            userMsg,
+            assistantMsg,
+          ],
+        }));
+        return;
+      }
+
+      const threadId = activeThreadId || null;
+      const tempUserId = `temp-${nanoid()}`;
+      const tempAssistantId = `temp-${nanoid()}`;
+
+      if (threadId) {
+        setMessagesByThread((prev) => ({
+          ...prev,
+          [threadId]: [
+            ...(prev[threadId] ?? []),
+            {
+              id: tempUserId,
+              role: "user",
+              content: trimmed,
+              selection: options?.selection,
+              referenceId: options?.referenceId,
+            },
+            {
+              id: tempAssistantId,
+              role: "assistant",
+              content: "",
+              streaming: true,
+              branches: [
+                {
+                  id: tempAssistantId,
+                  content: "",
+                  streaming: true,
+                },
+              ],
+              activeBranch: 0,
+            },
+          ],
+        }));
+      }
+
+      runStream({
+        query: trimmed,
+        threadId,
+        selection: options?.selection,
+        referenceId: options?.referenceId,
+      });
+    },
+    [activeThreadId, projectId, runStream],
+  );
+
+  const regenerateMessage = useCallback(
+    (assistantChatId: string, messageId: string) => {
+      if (!projectId || !activeThreadId || isStreaming) {
+        return;
+      }
+      runStream({
+        threadId: activeThreadId,
+        messageId,
+      });
+      void assistantChatId;
+    },
+    [activeThreadId, isStreaming, projectId, runStream],
+  );
+
+  const setActiveBranch = useCallback(
+    (assistantChatId: string, index: number) => {
+      if (!activeThreadId) return;
+      setMessagesByThread((prev) =>
+        updateThreadMessages(prev, activeThreadId, (msgs) =>
+          msgs.map((msg) => {
+            if (msg.id !== assistantChatId || !msg.branches) return msg;
+            const branch = msg.branches[index];
+            if (!branch) return msg;
+            return {
+              ...msg,
+              activeBranch: index,
+              content: branch.content,
+              timeline: branch.timeline,
+              thinking: branch.thinking,
+              tools: branch.tools,
+            };
+          }),
+        ),
+      );
     },
     [activeThreadId],
   );
@@ -392,7 +887,6 @@ export function ChatWorkspaceProvider({
 
   const deleteArtifact = useCallback(
     async (artifactId: string) => {
-      // Optimistically remove locally
       setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
       if (selectedArtifactId === artifactId) {
         setSelectedArtifactId(null);
@@ -402,7 +896,7 @@ export function ChatWorkspaceProvider({
         const { deleteArtifact: apiDelete } = await import("@/lib/api/chat");
         await apiDelete(projectId, artifactId);
       } catch (_err) {
-        // best-effort: ignore failures for now
+        // best-effort
       }
     },
     [projectId, selectedArtifactId],
@@ -415,6 +909,9 @@ export function ChatWorkspaceProvider({
       setActiveThreadId,
       messages,
       appendUserMessage,
+      regenerateMessage,
+      setActiveBranch,
+      isStreaming,
       newThread,
       renameThread,
       deleteThread,
@@ -430,6 +927,9 @@ export function ChatWorkspaceProvider({
       activeThreadId,
       messages,
       appendUserMessage,
+      regenerateMessage,
+      setActiveBranch,
+      isStreaming,
       newThread,
       renameThread,
       deleteThread,
