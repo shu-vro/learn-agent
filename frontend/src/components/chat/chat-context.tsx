@@ -16,6 +16,7 @@ import {
   type ChatMessage,
   type ChatTimelineItem,
   type ChatToolCall,
+  type ChatUsage,
   createLocalArtifact,
   createThread as createThreadRemote,
   deleteThread as deleteThreadRemote,
@@ -23,6 +24,7 @@ import {
   listArtifacts,
   listMessages,
   listThreads,
+  parseChatUsage,
   streamChat,
   type Thread,
   updateThread as updateThreadRemote,
@@ -33,6 +35,7 @@ import type { IngestionUploadOptions } from "@/lib/api/preferences";
 type SendMessageOptions = {
   selection?: string | null;
   referenceId?: string | null;
+  images?: string[] | null;
 };
 
 type ChatWorkspaceValue = {
@@ -94,6 +97,8 @@ function patchAssistantBranch(
     thinking: string;
     tools: ChatToolCall[];
     streaming: boolean;
+    activeThinkingStep: number | null;
+    usage: ChatUsage | null;
   }>,
 ): ChatMessage[] {
   return messages.map((msg) => {
@@ -117,6 +122,8 @@ function patchAssistantBranch(
       thinking: current.thinking,
       tools: current.tools,
       streaming: current.streaming,
+      activeThinkingStep: current.activeThinkingStep,
+      usage: current.usage,
     };
   });
 }
@@ -251,6 +258,7 @@ export function ChatWorkspaceProvider({
       messageId?: string;
       selection?: string | null;
       referenceId?: string | null;
+      images?: string[] | null;
       optimisticThreadId?: string;
     }) => {
       if (!projectId) {
@@ -271,6 +279,7 @@ export function ChatWorkspaceProvider({
           messageId: opts.messageId,
           selection: opts.selection,
           referenceId: opts.referenceId,
+          images: opts.images,
         },
         {
           onEvent: (event, data) => {
@@ -311,11 +320,15 @@ export function ChatWorkspaceProvider({
                 message: string;
                 selection?: string | null;
                 reference_id?: string | null;
+                image_urls?: string[] | null;
               };
               setMessagesByThread((prev) =>
                 updateThreadMessages(prev, workingThreadId, (msgs) => {
                   const withoutTemp = msgs.filter(
                     (m) => !(m.role === "user" && m.id.startsWith("temp-")),
+                  );
+                  const existingTemp = msgs.find(
+                    (m) => m.role === "user" && m.id.startsWith("temp-"),
                   );
                   if (withoutTemp.some((m) => m.id === message.id)) {
                     return withoutTemp;
@@ -329,6 +342,10 @@ export function ChatWorkspaceProvider({
                       chatId: message.chat_id,
                       selection: message.selection,
                       referenceId: message.reference_id,
+                      // Prefer optimistic local previews until S3 URLs land.
+                      imageUrls: message.image_urls?.length
+                        ? message.image_urls
+                        : (existingTemp?.imageUrls ?? null),
                     },
                   ];
                 }),
@@ -436,6 +453,7 @@ export function ChatWorkspaceProvider({
                     const nextBranch = syncBranchDerived({
                       ...branches[idx],
                       timeline,
+                      activeThinkingStep: step,
                     });
                     branches[idx] = nextBranch;
                     const active = msg.activeBranch ?? idx;
@@ -446,6 +464,10 @@ export function ChatWorkspaceProvider({
                       thinking:
                         active === idx ? nextBranch.thinking : msg.thinking,
                       tools: active === idx ? nextBranch.tools : msg.tools,
+                      activeThinkingStep:
+                        active === idx
+                          ? nextBranch.activeThinkingStep
+                          : msg.activeThinkingStep,
                     };
                   }),
                 ),
@@ -462,12 +484,18 @@ export function ChatWorkspaceProvider({
                     const idx = branches.findIndex((b) => b.id === branchId);
                     if (idx < 0) return msg;
                     const content = `${branches[idx].content}${delta}`;
-                    branches[idx] = { ...branches[idx], content };
+                    branches[idx] = {
+                      ...branches[idx],
+                      content,
+                      activeThinkingStep: null,
+                    };
                     const active = msg.activeBranch ?? idx;
                     return {
                       ...msg,
                       branches,
                       content: active === idx ? content : msg.content,
+                      activeThinkingStep:
+                        active === idx ? null : msg.activeThinkingStep,
                     };
                   }),
                 ),
@@ -522,6 +550,7 @@ export function ChatWorkspaceProvider({
                     const nextBranch = syncBranchDerived({
                       ...branches[idx],
                       timeline,
+                      activeThinkingStep: null,
                     });
                     branches[idx] = nextBranch;
                     const active = msg.activeBranch ?? idx;
@@ -532,6 +561,8 @@ export function ChatWorkspaceProvider({
                       thinking:
                         active === idx ? nextBranch.thinking : msg.thinking,
                       tools: active === idx ? nextBranch.tools : msg.tools,
+                      activeThinkingStep:
+                        active === idx ? null : msg.activeThinkingStep,
                     };
                   }),
                 ),
@@ -540,14 +571,22 @@ export function ChatWorkspaceProvider({
 
             if (event === "done" && assistantChatId && branchId) {
               const finalText = String(data.message ?? "");
+              const usage = parseChatUsage(data.usage);
               setMessagesByThread((prev) =>
                 updateThreadMessages(prev, workingThreadId, (msgs) =>
                   patchAssistantBranch(msgs, assistantChatId, branchId, {
                     content: finalText || undefined,
                     streaming: false,
+                    activeThinkingStep: null,
+                    usage,
                   }).map((msg) =>
                     msg.id === assistantChatId
-                      ? { ...msg, streaming: false }
+                      ? {
+                          ...msg,
+                          streaming: false,
+                          activeThinkingStep: null,
+                          usage,
+                        }
                       : msg,
                   ),
                 ),
@@ -561,7 +600,18 @@ export function ChatWorkspaceProvider({
                   msgs.map((msg) => {
                     if (msg.id !== assistantChatId) return msg;
                     const content = msg.content || `*Error:* ${message}`;
-                    return { ...msg, content, streaming: false };
+                    const branches = (msg.branches ?? []).map((b) => ({
+                      ...b,
+                      streaming: false,
+                      activeThinkingStep: null,
+                    }));
+                    return {
+                      ...msg,
+                      content,
+                      streaming: false,
+                      activeThinkingStep: null,
+                      branches,
+                    };
                   }),
                 ),
               );
@@ -584,7 +634,8 @@ export function ChatWorkspaceProvider({
   const appendUserMessage = useCallback(
     (text: string, options?: SendMessageOptions) => {
       const trimmed = text.trim();
-      if (!trimmed) {
+      const images = (options?.images ?? []).filter(Boolean);
+      if (!trimmed && images.length === 0) {
         return;
       }
 
@@ -596,6 +647,7 @@ export function ChatWorkspaceProvider({
           content: trimmed,
           selection: options?.selection,
           referenceId: options?.referenceId,
+          imageUrls: images.length ? images : null,
         };
         const assistantMsg: ChatMessage = {
           id: nanoid(),
@@ -629,6 +681,7 @@ export function ChatWorkspaceProvider({
               content: trimmed,
               selection: options?.selection,
               referenceId: options?.referenceId,
+              imageUrls: images.length ? images : null,
             },
             {
               id: tempAssistantId,
@@ -649,10 +702,11 @@ export function ChatWorkspaceProvider({
       }
 
       runStream({
-        query: trimmed,
+        query: trimmed || undefined,
         threadId,
         selection: options?.selection,
         referenceId: options?.referenceId,
+        images: images.length ? images : undefined,
       });
     },
     [activeThreadId, projectId, runStream],

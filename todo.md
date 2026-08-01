@@ -42,4 +42,6 @@
     also, if chunks are basically images and texts, make sure to generate the notes for the images as well.
     remember, question is an optional yet important part. if generated, make sure they are hard as university final exams or phd levels. which will really let the user understand the content better.
 
-- [ ] add multimodal support for rag_agent.py
+- [x] add multimodal support for rag_agent.py
+- [ ] interactive chat
+- [ ] more tools

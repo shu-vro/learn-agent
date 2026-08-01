@@ -30,6 +30,26 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# checkpointer tables are created at runtime
+# wont versioned by Alembic autogenerate.
+_IGNORED_TABLES = frozenset(
+    {
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes",
+        "checkpoint_migrations",
+    }
+)
+
+
+def include_object(object, name, type_, reflected, compare_to) -> bool:
+    if type_ == "table" and name in _IGNORED_TABLES:
+        return False
+    if type_ == "index" and getattr(object, "table", None) is not None:
+        if object.table.name in _IGNORED_TABLES:
+            return False
+    return True
+
 
 def _async_url() -> str:
     from src.db import ASYNC_CONN_URL
@@ -44,6 +64,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -55,6 +76,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():

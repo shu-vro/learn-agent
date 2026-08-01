@@ -9,6 +9,7 @@ from sqlalchemy import (
     String,
     Table,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from src.db.models.base import Base
@@ -69,8 +70,12 @@ class ChatMessage(Base):
     selection = Column(String, nullable=True)  # selection text from the message
     reference_id = Column(String, nullable=True)  # reference id of the message
     input_token = Column(Integer, default=0)
+    cache_token = Column(Integer, default=0)
     output_token = Column(Integer, default=0)
     total_token = Column(Integer, default=0)
+    # Per-iteration token breakdown for this generation (streaming-derived).
+    usage_detail = Column(JSON, nullable=True)
+    image_urls = Column(ARRAY(String), nullable=True)
 
     # Read-only recommended resources (document chunks, YouTube videos, etc.)
     # produced by the RAG agent for this message.

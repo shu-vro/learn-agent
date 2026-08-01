@@ -18,6 +18,100 @@ def _usage_from_llm_output(llm_output: dict[str, Any] | None) -> dict[str, Any] 
     }
 
 
+def _cache_tokens_from_entry(entry: dict[str, Any]) -> int:
+    """Extract cached input tokens from a usage metadata entry."""
+    details = entry.get("input_token_details")
+    if isinstance(details, dict):
+        cache_read = int(details.get("cache_read") or 0)
+        cache_creation = int(details.get("cache_creation") or 0)
+        if cache_read or cache_creation:
+            return cache_read + cache_creation
+
+    # OpenAI-style nested prompt token details
+    prompt_details = entry.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict):
+        return int(prompt_details.get("cached_tokens") or 0)
+
+    return int(
+        entry.get("cache_read_input_tokens")
+        or entry.get("cached_tokens")
+        or entry.get("cache_tokens")
+        or 0
+    )
+
+
+def _normalize_entry(entry: dict[str, Any]) -> dict[str, int] | None:
+    if not isinstance(entry, dict) or entry.get("warning"):
+        return None
+    inp = int(entry.get("input_tokens") or entry.get("prompt_tokens") or 0)
+    out = int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
+    cache = _cache_tokens_from_entry(entry)
+    total = int(entry.get("total_tokens") or 0)
+    if total == 0:
+        total = inp + out
+    if inp == 0 and out == 0 and cache == 0:
+        return None
+    return {
+        "input_token": inp,
+        "cache_token": cache,
+        "output_token": out,
+        "total_token": total,
+    }
+
+
+def summarize_usage(
+    usage_aggregator: "UsageAggregatorCallback | None",
+) -> dict[str, Any]:
+    """Aggregate per-call usage into totals + per-iteration breakdown."""
+    empty: dict[str, Any] = {
+        "input_token": 0,
+        "cache_token": 0,
+        "output_token": 0,
+        "total_token": 0,
+        "iterations": 0,
+        "iteration_details": [],
+    }
+    if not usage_aggregator:
+        return empty
+
+    entries = usage_aggregator.get_aggregated_usage().get(
+        usage_aggregator.task_name, []
+    )
+    details: list[dict[str, int]] = []
+    inp = cache = out = total = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        normalized = _normalize_entry(entry)
+        if not normalized:
+            continue
+        details.append(
+            {
+                "iteration": len(details) + 1,
+                "input_token": normalized["input_token"],
+                "cache_token": normalized["cache_token"],
+                "output_token": normalized["output_token"],
+                "total_token": normalized["total_token"],
+            }
+        )
+        inp += normalized["input_token"]
+        cache += normalized["cache_token"]
+        out += normalized["output_token"]
+        total += normalized["total_token"]
+
+    if total == 0:
+        total = inp + out
+
+    return {
+        "input_token": inp,
+        "cache_token": cache,
+        "output_token": out,
+        "total_token": total,
+        "iterations": len(details),
+        "iteration_details": details,
+    }
+
+
 class UsageAggregatorCallback(BaseCallbackHandler):
     """Callback handler that aggregates usage metadata."""
 

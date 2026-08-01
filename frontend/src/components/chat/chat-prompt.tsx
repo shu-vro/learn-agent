@@ -20,14 +20,9 @@ import {
   PromptInputActionUploadFile,
   PromptInputActionUploadPhoto,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
-  PromptInputToolbarCameraPhoto,
-  PromptInputToolbarScreenshot,
-  PromptInputToolbarUploadFile,
-  PromptInputToolbarUploadPhoto,
   PromptInputTools,
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
@@ -88,7 +83,11 @@ export const ChatPrompt = ({
   globalDrop = true,
   disabled = false,
 }: {
-  onSubmit: (text: string, e: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (
+    text: string,
+    e: FormEvent<HTMLFormElement>,
+    images?: string[],
+  ) => void;
   globalDrop?: boolean;
   disabled?: boolean;
 }) => {
@@ -110,16 +109,23 @@ export const ChatPrompt = ({
       if (disabled) {
         return;
       }
-      const hasText = Boolean(message.text);
-      const hasAttachments = Boolean(message.files?.length);
+      const hasText = Boolean(message.text?.trim());
+      const imageUrls = (message.files ?? [])
+        .filter(
+          (file) =>
+            Boolean(file.url) &&
+            (file.mediaType?.startsWith("image/") ||
+              file.url.startsWith("data:image/")),
+        )
+        .map((file) => file.url);
 
-      if (!(hasText || hasAttachments)) {
+      if (!(hasText || imageUrls.length > 0)) {
         return;
       }
 
       setStatus("submitted");
 
-      onSubmit(message.text, event);
+      onSubmit(message.text ?? "", event, imageUrls);
 
       setTimeout(() => {
         setStatus("streaming");

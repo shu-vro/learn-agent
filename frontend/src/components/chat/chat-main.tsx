@@ -35,6 +35,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import { useChatWorkspace } from "@/components/chat/chat-context";
+import { UsageDetailsButton } from "@/components/chat/usage-details";
 import type {
   ChatMessage,
   ChatTimelineItem,
@@ -90,6 +91,7 @@ function AssistantBody({
   thinking,
   tools,
   streaming,
+  activeThinkingStep,
 }: {
   message: ChatMessage;
   branchContent: string;
@@ -97,6 +99,7 @@ function AssistantBody({
   thinking?: string;
   tools?: ChatToolCall[];
   streaming?: boolean;
+  activeThinkingStep?: number | null;
 }) {
   const items: ChatTimelineItem[] =
     timeline && timeline.length > 0
@@ -115,17 +118,11 @@ function AssistantBody({
           ...(tools ?? []).map((t) => ({ kind: "tool" as const, ...t })),
         ];
 
-  const lastThinkingIdx = [...items]
-    .map((item, i) => (item.kind === "thinking" ? i : -1))
-    .filter((i) => i >= 0)
-    .pop();
-
   return (
     <>
-      {items.map((item, index) => {
+      {items.map((item) => {
         if (item.kind === "thinking") {
-          const isLive =
-            Boolean(streaming && !branchContent) && index === lastThinkingIdx;
+          const isLive = Boolean(streaming) && activeThinkingStep === item.step;
           return (
             <Reasoning key={item.id} className="w-full" isStreaming={isLive}>
               <ReasoningTrigger />
@@ -164,6 +161,9 @@ function AssistantMessage({
   const thinking = current?.thinking ?? message.thinking;
   const tools = current?.tools ?? message.tools;
   const streaming = current?.streaming ?? message.streaming;
+  const activeThinkingStep =
+    current?.activeThinkingStep ?? message.activeThinkingStep;
+  const usage = current?.usage ?? message.usage;
   const regenerateId = current?.id ?? message.id;
 
   if (hasBranches) {
@@ -184,6 +184,7 @@ function AssistantMessage({
                   thinking={branch.thinking}
                   tools={branch.tools}
                   streaming={branch.streaming}
+                  activeThinkingStep={branch.activeThinkingStep}
                 />
               </div>
             ))}
@@ -210,6 +211,7 @@ function AssistantMessage({
               >
                 <CopyIcon className="size-3" />
               </MessageAction>
+              {usage ? <UsageDetailsButton usage={usage} /> : null}
             </div>
           </MessageActions>
         </MessageBranch>
@@ -226,6 +228,7 @@ function AssistantMessage({
         thinking={thinking}
         tools={tools}
         streaming={streaming}
+        activeThinkingStep={activeThinkingStep}
       />
       <MessageActions>
         <MessageAction
@@ -243,6 +246,7 @@ function AssistantMessage({
         >
           <CopyIcon className="size-3" />
         </MessageAction>
+        {usage ? <UsageDetailsButton usage={usage} /> : null}
       </MessageActions>
     </Message>
   );
@@ -290,7 +294,22 @@ export function ChatMain({
                         {m.selection}
                       </blockquote>
                     ) : null}
-                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    {m.imageUrls?.length ? (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {m.imageUrls.map((url) => (
+                          // biome-ignore lint/performance/noImgElement: dynamic S3 URLs; next/image needs configured remote patterns
+                          <img
+                            key={url}
+                            src={url}
+                            alt="Attached"
+                            className="max-h-40 max-w-full rounded-md object-contain"
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    {m.content ? (
+                      <p className="whitespace-pre-wrap">{m.content}</p>
+                    ) : null}
                   </MessageContent>
                 </Message>
               ) : (
@@ -314,10 +333,12 @@ export function ChatMain({
           <ChatPrompt
             globalDrop={promptGlobalDrop}
             disabled={isStreaming}
-            onSubmit={(text, e: FormEvent<HTMLFormElement>) => {
+            onSubmit={(text, e: FormEvent<HTMLFormElement>, images) => {
               e.preventDefault();
               if (isStreaming) return;
-              appendUserMessage(text);
+              appendUserMessage(text, {
+                images: images?.length ? images : undefined,
+              });
             }}
           />
         </div>

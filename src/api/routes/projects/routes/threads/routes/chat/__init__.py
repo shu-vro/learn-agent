@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,15 +31,15 @@ from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from src.db.models.thread import Thread
+from src.tasks.chat_images import save_chat_user_images
 from src.utils.api.BaseResponse import BaseResponse
-from src.utils.usage_aggregator_callback import UsageAggregatorCallback
+from src.utils.chat_images import ensure_model_image_data_urls, validate_chat_images
+from src.utils.usage_aggregator_callback import (
+    UsageAggregatorCallback,
+    summarize_usage,
+)
 
 router = APIRouter(tags=["chats"])
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
 
 
 class ChatRequest(BaseModel):
@@ -48,17 +48,28 @@ class ChatRequest(BaseModel):
     message_id: str | None = None  # assistant ChatMessage id → regenerate
     reference_id: str | None = None  # ChatMessage id being quoted
     selection: str | None = None
+    # data:image/...;base64,... or raw base64 — validated before the agent runs.
+    images: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "ChatRequest":
         if self.message_id:
             return self
-        if not (self.query and self.query.strip()):
-            raise ValueError("query is required unless regenerating with message_id")
+        has_query = bool(self.query and self.query.strip())
+        has_images = bool(self.images)
+        if not has_query and not has_images:
+            raise ValueError(
+                "query or images is required unless regenerating with message_id"
+            )
         if (self.reference_id is None) ^ (self.selection is None):
             raise ValueError("reference_id and selection must be provided together")
         if self.selection is not None and not self.selection.strip():
             raise ValueError("selection must not be empty")
+        if self.images is not None:
+            try:
+                validate_chat_images(self.images)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
         return self
 
 
@@ -80,6 +91,23 @@ class ToolRead(BaseModel):
     created_at: datetime
 
 
+class UsageIterationRead(BaseModel):
+    iteration: int
+    input_token: int = 0
+    cache_token: int = 0
+    output_token: int = 0
+    total_token: int = 0
+
+
+class ChatUsageRead(BaseModel):
+    input_token: int = 0
+    cache_token: int = 0
+    output_token: int = 0
+    total_token: int = 0
+    iterations: int = 0
+    iteration_details: list[UsageIterationRead] = Field(default_factory=list)
+
+
 class ChatMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -88,13 +116,35 @@ class ChatMessageRead(BaseModel):
     message: str
     selection: str | None = None
     reference_id: str | None = None
+    image_urls: list[str] | None = None
     input_token: int = 0
+    cache_token: int = 0
     output_token: int = 0
     total_token: int = 0
+    usage: ChatUsageRead | None = None
     thinking_messages: list[ThinkingRead] = Field(default_factory=list)
     tool_messages: list[ToolRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+    @field_validator(
+        "input_token",
+        "cache_token",
+        "output_token",
+        "total_token",
+        mode="before",
+    )
+    @classmethod
+    def _none_tokens_to_zero(cls, value: Any) -> int:
+        return 0 if value is None else value
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _attach_usage(cls, value: Any, handler: Any) -> ChatMessageRead:
+        msg = handler(value)
+        if msg.usage is None and isinstance(value, ChatMessage):
+            msg.usage = _usage_from_message(value)
+        return msg
 
 
 class ChatRead(BaseModel):
@@ -137,6 +187,25 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def _usage_from_message(msg: ChatMessage) -> ChatUsageRead:
+    detail = msg.usage_detail if isinstance(msg.usage_detail, dict) else {}
+    iterations_raw = detail.get("iteration_details") or []
+    iteration_details: list[UsageIterationRead] = []
+    if isinstance(iterations_raw, list):
+        for item in iterations_raw:
+            if isinstance(item, dict):
+                iteration_details.append(UsageIterationRead.model_validate(item))
+    iterations = int(detail.get("iterations") or len(iteration_details) or 0)
+    return ChatUsageRead(
+        input_token=msg.input_token or 0,
+        cache_token=msg.cache_token or 0,
+        output_token=msg.output_token or 0,
+        total_token=msg.total_token or 0,
+        iterations=iterations,
+        iteration_details=iteration_details,
+    )
+
+
 def _chat_message_read(msg: ChatMessage) -> ChatMessageRead:
     """Build ChatMessageRead without triggering lazy relationship loads."""
     state = sa_inspect(msg)
@@ -146,15 +215,19 @@ def _chat_message_read(msg: ChatMessage) -> ChatMessageRead:
         thinking = [ThinkingRead.model_validate(t) for t in msg.thinking_messages]
     if "tool_messages" not in state.unloaded:
         tools = [ToolRead.model_validate(t) for t in msg.tool_messages]
+    usage = _usage_from_message(msg)
     return ChatMessageRead(
         id=msg.id,
         chat_id=msg.chat_id,
         message=msg.message,
         selection=msg.selection,
         reference_id=msg.reference_id,
-        input_token=msg.input_token or 0,
-        output_token=msg.output_token or 0,
-        total_token=msg.total_token or 0,
+        image_urls=list(msg.image_urls) if msg.image_urls else None,
+        input_token=usage.input_token,
+        cache_token=usage.cache_token,
+        output_token=usage.output_token,
+        total_token=usage.total_token,
+        usage=usage,
         thinking_messages=thinking,
         tool_messages=tools,
         created_at=msg.created_at,
@@ -218,24 +291,6 @@ async def _load_thread_chats(
             )
         )
     return turns
-
-
-def _sum_usage(usage_aggregator: UsageAggregatorCallback | None) -> dict[str, int]:
-    if not usage_aggregator:
-        return {"input_token": 0, "output_token": 0, "total_token": 0}
-    entries = usage_aggregator.get_aggregated_usage().get(
-        usage_aggregator.task_name, []
-    )
-    inp = out = total = 0
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        inp += int(entry.get("input_tokens") or entry.get("prompt_tokens") or 0)
-        out += int(entry.get("output_tokens") or entry.get("completion_tokens") or 0)
-        total += int(entry.get("total_tokens") or (inp + out) or 0)
-    if total == 0:
-        total = inp + out
-    return {"input_token": inp, "output_token": out, "total_token": total}
 
 
 async def _count_user_turns_up_to_group(
@@ -309,6 +364,8 @@ async def chat_endpoint(
     assistant_chat: Chat | None = None
     assistant_message: ChatMessage | None = None
     keep_human_turns: int | None = None
+    image_data_urls: list[str] | None = None
+    images_for_upload: list[str] | None = None
 
     if payload.message_id:
         regenerate = True
@@ -363,6 +420,11 @@ async def chat_endpoint(
         query = user_message.message
         selection = user_message.selection
         reference_id = user_message.reference_id
+        # OMLX only accepts data URIs — convert stored public S3 URLs back.
+        if user_message.image_urls:
+            image_data_urls = ensure_model_image_data_urls(
+                list(user_message.image_urls)
+            )
 
         keep_human_turns = await _count_user_turns_up_to_group(
             session, thread.id, group_id
@@ -396,6 +458,10 @@ async def chat_endpoint(
         query = (payload.query or "").strip()
         selection = payload.selection
         reference_id = payload.reference_id
+        if payload.images:
+            validated = validate_chat_images(payload.images)
+            image_data_urls = [img.data_url for img in validated]
+            images_for_upload = list(image_data_urls)
 
         if payload.thread_id:
             thread = await Thread.get_by_id_for_user(
@@ -440,6 +506,13 @@ async def chat_endpoint(
         await session.refresh(assistant_message)
         await session.refresh(thread)
 
+        if images_for_upload:
+            save_chat_user_images.delay(
+                message_id=user_message.id,
+                user_id=user.id,
+                images=images_for_upload,
+            )
+
     assert (
         thread and user_chat and user_message and assistant_chat and assistant_message
     )
@@ -452,7 +525,10 @@ async def chat_endpoint(
     assistant_chat_id = assistant_chat.id
     user_chat_id = user_chat.id
     human_prompt = format_human_prompt(
-        query, selection=selection, reference_id=reference_id
+        query,
+        selection=selection,
+        reference_id=reference_id,
+        has_images=bool(image_data_urls),
     )
 
     async def event_stream() -> AsyncIterator[str]:
@@ -515,6 +591,7 @@ async def chat_endpoint(
                     question=query,
                     thread_id=thread_id,
                     human_prompt=human_prompt,
+                    image_data_urls=image_data_urls,
                 ):
                     if event.type == "thinking":
                         delta = event.data.get("delta", "")
@@ -575,7 +652,7 @@ async def chat_endpoint(
                         answer_holder["text"] = event.data.get(
                             "answer", answer_holder["text"]
                         )
-                        answer_holder["usage"] = _sum_usage(usage_aggregator)
+                        answer_holder["usage"] = summarize_usage(usage_aggregator)
                         answer_holder["thinking_by_step"] = thinking_by_step
                         answer_holder["tools"] = completed_tools
 
@@ -609,8 +686,13 @@ async def chat_endpoint(
                     msg.message = answer_holder.get("text") or ""
                     usage = answer_holder.get("usage") or {}
                     msg.input_token = usage.get("input_token", 0)
+                    msg.cache_token = usage.get("cache_token", 0)
                     msg.output_token = usage.get("output_token", 0)
                     msg.total_token = usage.get("total_token", 0)
+                    msg.usage_detail = {
+                        "iterations": usage.get("iterations", 0),
+                        "iteration_details": usage.get("iteration_details") or [],
+                    }
 
                     thinking_by_step: dict[int, str] = (
                         answer_holder.get("thinking_by_step") or {}
@@ -653,11 +735,7 @@ async def chat_endpoint(
                         "message_id": msg.id,
                         "chat_id": assistant_chat_id,
                         "message": msg.message,
-                        "usage": {
-                            "input_token": msg.input_token,
-                            "output_token": msg.output_token,
-                            "total_token": msg.total_token,
-                        },
+                        "usage": _usage_from_message(msg).model_dump(mode="json"),
                     }
 
                     # Name the thread once, on the first successful AI reply.

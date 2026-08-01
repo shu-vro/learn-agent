@@ -5,6 +5,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+# CHAT CONFIG
+MAIN_CHAT_MAX_IMAGE_BYTES = int(
+    os.environ.get("MAIN_CHAT_MAX_IMAGE_BYTES", 8388608)
+)  # 8 MiB
+MAIN_CHAT_MAX_IMAGES_PER_MESSAGE = int(
+    os.environ.get("MAIN_CHAT_MAX_IMAGES_PER_MESSAGE", 6)
+)
+
+
 # Stored uploads for project-bound documents (PDF / markdown).
 _default_upload_root = Path(__file__).resolve().parents[2] / "var" / "uploads"
 ASSET_UPLOAD_ROOT = Path(
@@ -42,6 +52,12 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 AWS_S3_ENDPOINT = os.environ.get("AWS_S3_ENDPOINT", "http://localhost:4566")
 AWS_S3_USE_PATH_STYLE = os.environ.get("AWS_S3_USE_PATH_STYLE", "true")
 AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET", "my-disposable-assets-bucket")
+AWS_S3_USER_ASSETS_BUCKET = os.environ.get("AWS_S3_USER_ASSETS_BUCKET", "userassets")
+# Optional CDN / stable public base for userassets (no trailing slash).
+# Example: https://cdn.example.com  or leave empty to use S3 endpoint URLs.
+AWS_S3_USER_ASSETS_PUBLIC_BASE_URL = os.environ.get(
+    "AWS_S3_USER_ASSETS_PUBLIC_BASE_URL", ""
+).rstrip("/")
 AWS_CLOUDFRONT_DOMAIN = os.environ.get("AWS_CLOUDFRONT_DOMAIN", "http://localhost:4566")
 AWS_CLOUDFRONT_PUBLIC_KEY_ID = os.environ.get(
     "AWS_CLOUDFRONT_PUBLIC_KEY_ID", "YOUR_PUBLIC_KEY_ID_FROM_TERRAFORM"

@@ -42,6 +42,23 @@ export type ChatTimelineItem =
   | ({ kind: "thinking" } & ChatThinkingStep)
   | ({ kind: "tool" } & ChatToolCall);
 
+export type ChatUsageIteration = {
+  iteration: number;
+  input_token: number;
+  cache_token: number;
+  output_token: number;
+  total_token: number;
+};
+
+export type ChatUsage = {
+  input_token: number;
+  cache_token: number;
+  output_token: number;
+  total_token: number;
+  iterations: number;
+  iteration_details: ChatUsageIteration[];
+};
+
 export type ChatBranch = {
   id: string;
   content: string;
@@ -51,6 +68,9 @@ export type ChatBranch = {
   /** @deprecated prefer timeline */
   tools?: ChatToolCall[];
   streaming?: boolean;
+  /** Streaming-only: step index currently receiving thinking deltas. */
+  activeThinkingStep?: number | null;
+  usage?: ChatUsage | null;
 };
 
 export type ChatMessage = {
@@ -61,12 +81,16 @@ export type ChatMessage = {
   groupId?: string;
   selection?: string | null;
   referenceId?: string | null;
+  imageUrls?: string[] | null;
   branches?: ChatBranch[];
   activeBranch?: number;
   timeline?: ChatTimelineItem[];
   thinking?: string;
   tools?: ChatToolCall[];
   streaming?: boolean;
+  /** Streaming-only: mirrors active branch's activeThinkingStep. */
+  activeThinkingStep?: number | null;
+  usage?: ChatUsage | null;
 };
 
 export type ChatSendOptions = {
@@ -75,6 +99,7 @@ export type ChatSendOptions = {
   messageId?: string | null;
   referenceId?: string | null;
   selection?: string | null;
+  images?: string[] | null;
 };
 
 export type ChatStreamHandlers = {
@@ -91,12 +116,35 @@ type ApiTool = {
   tool_result: unknown;
   created_at?: string;
 };
+type ApiUsageIteration = {
+  iteration: number;
+  input_token?: number;
+  cache_token?: number;
+  output_token?: number;
+  total_token?: number;
+};
+
+type ApiUsage = {
+  input_token?: number;
+  cache_token?: number;
+  output_token?: number;
+  total_token?: number;
+  iterations?: number;
+  iteration_details?: ApiUsageIteration[];
+};
+
 type ApiChatMessage = {
   id: string;
   chat_id: string;
   message: string;
   selection?: string | null;
   reference_id?: string | null;
+  image_urls?: string[] | null;
+  input_token?: number;
+  cache_token?: number;
+  output_token?: number;
+  total_token?: number;
+  usage?: ApiUsage | null;
   thinking_messages?: ApiThinking[];
   tool_messages?: ApiTool[];
 };
@@ -179,6 +227,62 @@ function mapTimeline(msg: ApiChatMessage): ChatTimelineItem[] {
     .map(({ at: _at, ...item }) => item);
 }
 
+function mapUsage(msg: ApiChatMessage): ChatUsage | null {
+  const raw = msg.usage;
+  const input = raw?.input_token ?? msg.input_token ?? 0;
+  const cache = raw?.cache_token ?? msg.cache_token ?? 0;
+  const output = raw?.output_token ?? msg.output_token ?? 0;
+  const total = raw?.total_token ?? msg.total_token ?? input + output;
+  const details = (raw?.iteration_details ?? []).map((item, index) => ({
+    iteration: item.iteration ?? index + 1,
+    input_token: item.input_token ?? 0,
+    cache_token: item.cache_token ?? 0,
+    output_token: item.output_token ?? 0,
+    total_token: item.total_token ?? 0,
+  }));
+  const iterations = raw?.iterations ?? details.length;
+  if (!input && !cache && !output && !iterations) {
+    return null;
+  }
+  return {
+    input_token: input,
+    cache_token: cache,
+    output_token: output,
+    total_token: total,
+    iterations,
+    iteration_details: details,
+  };
+}
+
+export function parseChatUsage(data: unknown): ChatUsage | null {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+  const raw = data as ApiUsage;
+  const details = (raw.iteration_details ?? []).map((item, index) => ({
+    iteration: item.iteration ?? index + 1,
+    input_token: item.input_token ?? 0,
+    cache_token: item.cache_token ?? 0,
+    output_token: item.output_token ?? 0,
+    total_token: item.total_token ?? 0,
+  }));
+  const input = raw.input_token ?? 0;
+  const cache = raw.cache_token ?? 0;
+  const output = raw.output_token ?? 0;
+  const iterations = raw.iterations ?? details.length;
+  if (!input && !cache && !output && !iterations) {
+    return null;
+  }
+  return {
+    input_token: input,
+    cache_token: cache,
+    output_token: output,
+    total_token: raw.total_token ?? input + output,
+    iterations,
+    iteration_details: details,
+  };
+}
+
 function mapBranch(msg: ApiChatMessage): ChatBranch {
   const timeline = mapTimeline(msg);
   const thinkingParts = timeline
@@ -196,6 +300,7 @@ function mapBranch(msg: ApiChatMessage): ChatBranch {
     timeline,
     thinking: thinkingParts.join("\n\n"),
     tools,
+    usage: mapUsage(msg),
   };
 }
 
@@ -212,6 +317,7 @@ export function turnsToMessages(turns: ApiTurn[]): ChatMessage[] {
         groupId: turn.group_id,
         selection: um.selection,
         referenceId: um.reference_id,
+        imageUrls: um.image_urls ?? null,
       });
     }
     if (turn.assistant) {
@@ -228,6 +334,7 @@ export function turnsToMessages(turns: ApiTurn[]): ChatMessage[] {
         activeBranch: active,
         thinking: current?.thinking,
         tools: current?.tools,
+        usage: current?.usage,
       });
     }
   }
@@ -318,12 +425,13 @@ export function streamChat(
   const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
   const url = `${baseUrl}/api/v1/projects/${projectId}/chats`;
 
-  const body: Record<string, string> = {};
+  const body: Record<string, unknown> = {};
   if (options.query) body.query = options.query;
   if (options.threadId) body.thread_id = options.threadId;
   if (options.messageId) body.message_id = options.messageId;
   if (options.referenceId) body.reference_id = options.referenceId;
   if (options.selection) body.selection = options.selection;
+  if (options.images?.length) body.images = options.images;
 
   const controller = new AbortController();
   let closed = false;

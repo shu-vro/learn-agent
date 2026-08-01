@@ -24,6 +24,21 @@ def _format_for_log(value):
     return pretty_repr(value, expand_all=True)
 
 
+def _with_level_markup(text: str, log_level: str) -> str:
+    """Wrap with Rich markup for RichHandler (markup=True). Never use with raw print."""
+    if log_level == "SUCCESS":
+        return f"[green]{text}[/green]"
+    if log_level == "ERROR":
+        return f"[red]{text}[/red]"
+    if log_level == "WARNING":
+        return f"[yellow]{text}[/yellow]"
+    if log_level == "INFO":
+        return f"[blue]{text}[/blue]"
+    if log_level == "DEBUG":
+        return f"[purple]{text}[/purple]"
+    return text
+
+
 def print(*args, **kwargs):
     sep = kwargs.pop("sep", " ")
     end = kwargs.pop("end", "\n")
@@ -31,25 +46,10 @@ def print(*args, **kwargs):
     flush = kwargs.pop("flush", False)
     log_level = str(kwargs.pop("log_level", "info")).upper()
 
-    # Preserve original print behavior for unsupported kwargs or non-line prints.
     args = list(args)
-    firstarg = args[0]
 
-    log_level = log_level.upper()
-
-    if type(firstarg) is str and log_level == "SUCCESS":
-        firstarg = f"[green]{firstarg}[/green]"
-    elif type(firstarg) is str and log_level == "ERROR":
-        firstarg = f"[red]{firstarg}[/red]"
-    elif type(firstarg) is str and log_level == "WARNING":
-        firstarg = f"[yellow]{firstarg}[/yellow]"
-    elif type(firstarg) is str and log_level == "INFO":
-        firstarg = f"[blue]{firstarg}[/blue]"
-    elif type(firstarg) is str and log_level == "DEBUG":
-        firstarg = f"[purple]{firstarg}[/purple]"
-
-    args[0] = firstarg
-
+    # traceback.print_exc() uses print(line, end="") — raw print cannot interpret
+    # Rich markup, so never wrap before falling back to _original_print.
     if kwargs or end != "\n":
         _original_print(*args, sep=sep, end=end, file=file, flush=flush)
         return
@@ -58,6 +58,9 @@ def print(*args, **kwargs):
     if target_stream is not None and target_stream not in (sys.stdout, sys.stderr):
         _original_print(*args, sep=sep, end=end, file=target_stream, flush=flush)
         return
+
+    if args and type(args[0]) is str:
+        args[0] = _with_level_markup(args[0], log_level)
 
     message = sep.join(_format_for_log(arg) for arg in args)
 

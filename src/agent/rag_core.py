@@ -102,9 +102,13 @@ def format_human_prompt(
     *,
     selection: str | None = None,
     reference_id: str | None = None,
+    has_images: bool = False,
 ) -> str:
-    """Build the human message sent to the model (may include selection context)."""
-    parts = [f"Question:\n{question}\n"]
+    """Build the human message text sent to the model (may include selection)."""
+    q = (question or "").strip()
+    if not q and has_images:
+        q = "Please analyze the attached image(s)."
+    parts = [f"Question:\n{q}\n"]
     if selection and reference_id:
         parts.append(
             "Referenced selection "
@@ -112,6 +116,34 @@ def format_human_prompt(
             f'"""\n{selection}\n"""\n'
         )
     return "\n".join(parts) + "\n"
+
+
+def build_human_message(
+    question: str,
+    *,
+    selection: str | None = None,
+    reference_id: str | None = None,
+    image_data_urls: list[str] | None = None,
+) -> HumanMessage:
+    """Build a text or multimodal HumanMessage for the agent."""
+    from src.utils.chat_images import ensure_model_image_data_urls
+
+    text = format_human_prompt(
+        question,
+        selection=selection,
+        reference_id=reference_id,
+        has_images=bool(image_data_urls),
+    )
+    normalized = ensure_model_image_data_urls(image_data_urls)
+    if not normalized:
+        return HumanMessage(content=text)
+
+    # Image-first matches OMLX chat UI / VLM template expectations.
+    content: list[dict[str, Any]] = [
+        *[{"type": "image_url", "image_url": {"url": url}} for url in normalized],
+        {"type": "text", "text": text},
+    ]
+    return HumanMessage(content=content)
 
 
 def qdrant_filter_for_doc_ids(doc_ids: list[str] | None) -> qdrant_models.Filter | dict:
@@ -206,16 +238,48 @@ def stream_rag_events(
     *,
     question: str,
     thread_id: str,
-    human_prompt: str | None = None,
+    human_prompt: str | HumanMessage | None = None,
+    image_data_urls: list[str] | None = None,
 ) -> Iterator[RagStreamEvent]:
     """Stream typed events from a RAG agent run for the given thread.
 
     Handles multi-round agent loops (think → tools → think → … → answer).
     Each contiguous reasoning segment gets a monotonic ``step`` index so
     callers can persist/render discrete thinking blocks between tool calls.
+
+    ``human_prompt`` may be plain text or a multimodal ``HumanMessage``.
+    ``image_data_urls`` attaches images when ``human_prompt`` is text/omitted.
     """
     runnable_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-    prompt = human_prompt if human_prompt is not None else format_human_prompt(question)
+
+    if isinstance(human_prompt, HumanMessage):
+        message_input: Any = human_prompt
+    else:
+        from src.utils.chat_images import ensure_model_image_data_urls
+
+        text = (
+            human_prompt
+            if human_prompt is not None
+            else format_human_prompt(question, has_images=bool(image_data_urls))
+        )
+        normalized = ensure_model_image_data_urls(image_data_urls)
+        if normalized:
+            # Image-first — OMLX rejects remote URLs and is happier with this order.
+            message_input = HumanMessage(
+                content=[
+                    *[
+                        {"type": "image_url", "image_url": {"url": url}}
+                        for url in normalized
+                    ],
+                    {"type": "text", "text": text},
+                ]
+            )
+        else:
+            message_input = text
+
+    stream_messages: Any = (
+        [message_input] if isinstance(message_input, HumanMessage) else message_input
+    )
 
     answer_text = ""
     pending_tool_calls: dict[str, dict[str, Any]] = {}
@@ -225,7 +289,7 @@ def stream_rag_events(
     start_new_thinking_step = False
 
     for chunk in agent.stream(
-        {"messages": prompt},
+        {"messages": stream_messages},
         config=runnable_config,
         stream_mode=["messages", "updates"],
         version="v2",

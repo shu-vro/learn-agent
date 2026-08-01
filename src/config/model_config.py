@@ -54,21 +54,21 @@ MODEL_CONFIGS = MappingProxyType(
         ),
         "omlx:gemma-4-e4b-it-4bit": Model(
             provider="omlx",
-            model="gemma-4-e4b-it-4bit",
+            model="gemma-4-E4B-it-MLX-4bit",
             model_name="gemma4:e4b-it-4bit",
             pricing={"input": 0, "output": 0, "input_cache_read": 0},
             context_window=128000,
             temperature=1,
             reasoning_effort=ReasoningEffort.HIGH,
         ),
-        # "openai:gpt-4.1-nano": Model(
-        #     provider="openai",
-        #     model="gpt-4.1-nano",
-        #     model_name="gpt-4.1-nano",
-        #     pricing={"input": 0.1, "output": 0.4, "input_cache_read": 0.025},
-        #     context_window=1000000,
-        #     temperature=1,
-        # ),
+        "openai:gpt-4.1-nano": Model(
+            provider="openai",
+            model="gpt-4.1-nano",
+            model_name="gpt-4.1-nano",
+            pricing={"input": 0.1, "output": 0.4, "input_cache_read": 0.025},
+            context_window=1000000,
+            temperature=1,
+        ),
     }
 )
 

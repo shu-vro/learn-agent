@@ -17,7 +17,7 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     worker_pool=_DEFAULT_WORKER_POOL,
-    imports=("src.tasks.artifact_ingestion",),
+    imports=("src.tasks.artifact_ingestion", "src.tasks.chat_images"),
 )
 
 __all__ = ["celery_app"]

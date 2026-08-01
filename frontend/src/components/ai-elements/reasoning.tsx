@@ -83,6 +83,8 @@ export const Reasoning = memo(
     useEffect(() => {
       if (isStreaming) {
         hasEverStreamedRef.current = true;
+        // Allow a later streaming session on this instance to auto-close again.
+        setHasAutoClosed(false);
         if (startTimeRef.current === null) {
           startTimeRef.current = Date.now();
         }

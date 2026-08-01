@@ -16,13 +16,18 @@ from src.config.env import (
     AWS_S3_ENDPOINT,
     AWS_S3_USE_PATH_STYLE,
     AWS_S3_BUCKET,
+    AWS_S3_USER_ASSETS_BUCKET,
+    AWS_S3_USER_ASSETS_PUBLIC_BASE_URL,
     AWS_CLOUDFRONT_DOMAIN,
     AWS_CLOUDFRONT_PUBLIC_KEY_ID,
     AWS_CLOUDFRONT_PRIVATE_KEY_PATH,
 )
 
 # Configuration (Use the output from your Terraform apply)
-BUCKET_NAME = {"main": AWS_S3_BUCKET}
+BUCKET_NAME = {
+    "main": AWS_S3_BUCKET,
+    "userassets": AWS_S3_USER_ASSETS_BUCKET,
+}
 CLOUDFRONT_DOMAIN = AWS_CLOUDFRONT_DOMAIN
 KEY_ID = AWS_CLOUDFRONT_PUBLIC_KEY_ID
 PRIVATE_KEY_PATH = AWS_CLOUDFRONT_PRIVATE_KEY_PATH
@@ -65,6 +70,113 @@ def upload_file_to_s3(
 
     s3_client.upload_file(str(path), bucket, s3_key, **upload_kwargs)
     return s3_key
+
+
+def upload_bytes_to_s3(
+    body: bytes,
+    s3_key: str,
+    *,
+    content_type: str = "application/octet-stream",
+    bucket_name: str = "userassets",
+    public: bool = False,
+) -> str:
+    """Upload in-memory bytes to S3.
+
+    When ``public=True``, objects are uploaded with a public-read ACL so
+    ``generate_public_url`` links remain stable (non-expiring).
+    """
+    bucket = BUCKET_NAME[bucket_name]
+    put_kwargs: dict[str, object] = {
+        "Bucket": bucket,
+        "Key": s3_key,
+        "Body": body,
+        "ContentType": content_type,
+    }
+    if public:
+        put_kwargs["ACL"] = "public-read"
+    s3_client.put_object(**put_kwargs)
+    return s3_key
+
+
+def generate_public_url(s3_key: str, bucket_name: str = "userassets") -> str:
+    """Build a stable, non-expiring public URL for an S3 object.
+
+    Prefer a configured public base (CDN / CloudFront). Otherwise use the
+    S3 endpoint in path-style (LocalStack) or virtual-hosted AWS style.
+    """
+    bucket = BUCKET_NAME[bucket_name]
+    key = s3_key.lstrip("/")
+
+    # Optional override, e.g. https://cdn.example.com or https://dxxx.cloudfront.net
+    if AWS_S3_USER_ASSETS_PUBLIC_BASE_URL and bucket_name == "userassets":
+        return f"{AWS_S3_USER_ASSETS_PUBLIC_BASE_URL}/{key}"
+
+    endpoint = (AWS_S3_ENDPOINT or "").rstrip("/")
+    use_path = str(AWS_S3_USE_PATH_STYLE).lower() == "true"
+
+    # Local / custom endpoint (LocalStack): path-style public URL.
+    if endpoint and (
+        "localhost" in endpoint
+        or "127.0.0.1" in endpoint
+        or "localstack" in endpoint.lower()
+        or use_path
+    ):
+        return f"{endpoint}/{bucket}/{key}"
+
+    # Standard AWS virtual-hosted–style public URL.
+    return f"https://{bucket}.s3.{AWS_REGION}.amazonaws.com/{key}"
+
+
+def parse_user_asset_public_url(url: str) -> tuple[str, str] | None:
+    """If ``url`` points at a known bucket object, return ``(bucket_alias, key)``."""
+    text = (url or "").strip()
+    if not text:
+        return None
+
+    for alias, bucket in BUCKET_NAME.items():
+        # Path-style: http://endpoint/bucket/key
+        marker = f"/{bucket}/"
+        idx = text.find(marker)
+        if idx >= 0:
+            return alias, text[idx + len(marker) :].split("?", 1)[0]
+
+        # Virtual-hosted: https://bucket.s3.region.amazonaws.com/key
+        host_marker = f"https://{bucket}.s3."
+        if text.startswith(host_marker):
+            path = text.split("://", 1)[1].split("/", 1)
+            if len(path) == 2:
+                return alias, path[1].split("?", 1)[0]
+
+        if AWS_S3_USER_ASSETS_PUBLIC_BASE_URL and alias == "userassets":
+            base = AWS_S3_USER_ASSETS_PUBLIC_BASE_URL.rstrip("/") + "/"
+            if text.startswith(base):
+                return alias, text[len(base) :].split("?", 1)[0]
+
+    return None
+
+
+def download_user_asset_bytes(
+    s3_key: str,
+    *,
+    bucket_name: str = "userassets",
+) -> tuple[bytes, str | None]:
+    """Download object bytes and optional ContentType from S3."""
+    bucket = BUCKET_NAME[bucket_name]
+    obj = s3_client.get_object(Bucket=bucket, Key=s3_key.lstrip("/"))
+    body = obj["Body"].read()
+    content_type = obj.get("ContentType")
+    return body, content_type if isinstance(content_type, str) else None
+
+
+def user_asset_s3_key(
+    user_id: str,
+    message_id: str,
+    index: int,
+    *,
+    extension: str = "png",
+) -> str:
+    ext = extension.lstrip(".").lower() or "bin"
+    return f"userassets/{user_id}/{message_id}/{index}.{ext}"
 
 
 def upload_artifacts_directory_to_s3(
