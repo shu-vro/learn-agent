@@ -23,6 +23,7 @@ from src.agent.prompts import main_agent_system_prompt
 from src.agent.tools.builtin_tools import youtube_search
 from src.agent.tools.document_retriever import retrieve_context_tool
 from src.agent.tools.duckduckgo_search import duckduckgo_search
+from src.agent.tools.image_search import duckduckgo_image_search
 from src.agent.tools.web_fetch import fetch_url
 from src.config.constants import (
     DEFAULT_ARTIFACTS_DIR,
@@ -212,7 +213,13 @@ def build_rag_agent(
         filter_value = qdrant_filter
 
     retrieve_context = retrieve_context_tool(filters=filter_value)
-    tools = [retrieve_context, duckduckgo_search, youtube_search, fetch_url]
+    tools = [
+        retrieve_context,
+        duckduckgo_search,
+        duckduckgo_image_search,
+        youtube_search,
+        fetch_url,
+    ]
 
     middleware: list[Any] = list(extra_middleware or [])
     middleware.append(
