@@ -7,6 +7,7 @@ from typing import AsyncIterator
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -84,7 +85,7 @@ def sync_engine() -> Engine:
 
 
 @lru_cache(maxsize=1)
-def sync_session_factory() -> sessionmaker:
+def sync_session_factory() -> sessionmaker[Session]:
     return sessionmaker(
         bind=sync_engine(),
         expire_on_commit=False,

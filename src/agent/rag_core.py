@@ -25,6 +25,7 @@ from src.agent.tools.document_retriever import retrieve_context_tool
 from src.agent.tools.duckduckgo_search import duckduckgo_search
 from src.agent.tools.image_search import duckduckgo_image_search
 from src.agent.tools.web_fetch import fetch_url
+from src.agent.tools.next_chunk import next_chunk
 from src.config.constants import (
     DEFAULT_ARTIFACTS_DIR,
     DEFAULT_EMBEDDING_MODEL,
@@ -219,6 +220,7 @@ def build_rag_agent(
         duckduckgo_image_search,
         youtube_search,
         fetch_url,
+        next_chunk,
     ]
 
     middleware: list[Any] = list(extra_middleware or [])
