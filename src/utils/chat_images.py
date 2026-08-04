@@ -169,6 +169,30 @@ def bytes_to_data_url(raw: bytes, mime_type: str | None = None) -> str:
     return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
+def upload_chat_images(
+    images: list[ValidatedChatImage],
+    *,
+    user_id: str,
+    message_id: str,
+) -> list[str]:
+    """Convert validated chat images to WebP and upload to S3, returning public URLs."""
+    from src.lib.aws import generate_public_url, upload_bytes_to_s3, user_asset_s3_key
+
+    urls: list[str] = []
+    for index, image in enumerate(images):
+        webp_bytes = convert_image_bytes_to_webp(image.raw_bytes)
+        s3_key = user_asset_s3_key(user_id, message_id, index, extension="webp")
+        upload_bytes_to_s3(
+            webp_bytes,
+            s3_key,
+            content_type="image/webp",
+            bucket_name="userassets",
+            public=True,
+        )
+        urls.append(generate_public_url(s3_key, bucket_name="userassets"))
+    return urls
+
+
 def ensure_model_image_data_urls(urls: list[str] | None) -> list[str]:
     """Normalize image refs to data URIs for providers that reject remote URLs.
 
@@ -235,6 +259,7 @@ __all__ = [
     "bytes_to_data_url",
     "convert_image_bytes_to_webp",
     "ensure_model_image_data_urls",
+    "upload_chat_images",
     "validate_chat_image",
     "validate_chat_images",
 ]

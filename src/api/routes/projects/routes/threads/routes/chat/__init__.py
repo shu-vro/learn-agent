@@ -31,9 +31,13 @@ from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from src.db.models.thread import Thread
-from src.tasks.chat_images import save_chat_user_images
 from src.utils.api.BaseResponse import BaseResponse
-from src.utils.chat_images import ensure_model_image_data_urls, validate_chat_images
+from src.utils.chat_images import (
+    ValidatedChatImage,
+    ensure_model_image_data_urls,
+    upload_chat_images,
+    validate_chat_images,
+)
 from src.utils.usage_aggregator_callback import (
     UsageAggregatorCallback,
     summarize_usage,
@@ -365,7 +369,7 @@ async def chat_endpoint(
     assistant_message: ChatMessage | None = None
     keep_human_turns: int | None = None
     image_data_urls: list[str] | None = None
-    images_for_upload: list[str] | None = None
+    images_for_upload: list[ValidatedChatImage] | None = None
 
     if payload.message_id:
         regenerate = True
@@ -461,7 +465,7 @@ async def chat_endpoint(
         if payload.images:
             validated = validate_chat_images(payload.images)
             image_data_urls = [img.data_url for img in validated]
-            images_for_upload = list(image_data_urls)
+            images_for_upload = validated
 
         if payload.thread_id:
             thread = await Thread.get_by_id_for_user(
@@ -507,11 +511,15 @@ async def chat_endpoint(
         await session.refresh(thread)
 
         if images_for_upload:
-            save_chat_user_images.delay(
-                message_id=user_message.id,
+            uploaded_urls = await asyncio.to_thread(
+                upload_chat_images,
+                images_for_upload,
                 user_id=user.id,
-                images=images_for_upload,
+                message_id=user_message.id,
             )
+            user_message.image_urls = uploaded_urls or None
+            await session.commit()
+            await session.refresh(user_message)
 
     assert (
         thread and user_chat and user_message and assistant_chat and assistant_message
