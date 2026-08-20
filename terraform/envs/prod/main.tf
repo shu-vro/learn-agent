@@ -1,24 +1,54 @@
 module "disposable_assets" {
   source = "../../modules/disposable-assets"
 
-  project    = var.project
+  project     = var.project
   environment = var.environment
-  aws_region = var.aws_region
+  aws_region  = var.aws_region
   bucket_name = var.bucket_name
 
-  cloudfront_public_key   = var.cloudfront_public_key
-  acm_certificate_arn     = var.acm_certificate_arn
-  cloudfront_aliases      = var.cloudfront_aliases
-  viewer_protocol_policy  = var.viewer_protocol_policy
+  cloudfront_public_key  = var.cloudfront_public_key
+  acm_certificate_arn    = var.acm_certificate_arn
+  cloudfront_aliases     = var.cloudfront_aliases
+  viewer_protocol_policy = var.viewer_protocol_policy
 
   use_localstack            = false
   enable_cloudfront_signing = true
-  wait_for_deployment      = true
+  wait_for_deployment       = true
+  enable_bucket_versioning  = true
+}
+
+module "user_storage" {
+  source = "../../modules/user-storage"
+
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+
+  user_assets_bucket_name = var.user_assets_bucket_name
+  user_voices_bucket_name = var.user_voices_bucket_name
+
+  cors_allowed_origins     = var.cors_allowed_origins
   enable_bucket_versioning = true
 }
 
 output "bucket_name" {
   value = module.disposable_assets.bucket_name
+}
+
+output "user_assets_bucket_name" {
+  value = module.user_storage.user_assets_bucket_name
+}
+
+output "user_assets_bucket_arn" {
+  value = module.user_storage.user_assets_bucket_arn
+}
+
+output "user_voices_bucket_name" {
+  value = module.user_storage.user_voices_bucket_name
+}
+
+output "user_voices_bucket_arn" {
+  value = module.user_storage.user_voices_bucket_arn
 }
 
 output "bucket_arn" {

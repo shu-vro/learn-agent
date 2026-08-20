@@ -47,3 +47,20 @@ variable "viewer_protocol_policy" {
     error_message = "Production should use redirect-to-https or https-only."
   }
 }
+
+variable "user_assets_bucket_name" {
+  description = "Optional override for the chat images bucket name."
+  type        = string
+  default     = ""
+}
+
+variable "user_voices_bucket_name" {
+  description = "Optional override for the read-aloud audio bucket name."
+  type        = string
+  default     = ""
+}
+
+variable "cors_allowed_origins" {
+  description = "Origins allowed to read chat images directly from S3."
+  type        = list(string)
+}

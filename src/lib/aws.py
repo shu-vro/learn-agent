@@ -53,6 +53,19 @@ s3_client = boto3.client(
 )
 
 
+def _is_local_endpoint() -> bool:
+    """True when S3 traffic goes to LocalStack / a custom path-style endpoint."""
+    endpoint = (AWS_S3_ENDPOINT or "").rstrip("/")
+    if not endpoint:
+        return False
+    return (
+        "localhost" in endpoint
+        or "127.0.0.1" in endpoint
+        or "localstack" in endpoint.lower()
+        or str(AWS_S3_USE_PATH_STYLE).lower() == "true"
+    )
+
+
 def upload_file_to_s3(
     local_path: str | Path,
     s3_key: str,
@@ -113,16 +126,9 @@ def generate_public_url(s3_key: str, bucket_name: str = "userassets") -> str:
     if AWS_S3_USER_ASSETS_PUBLIC_BASE_URL and bucket_name == "userassets":
         return f"{AWS_S3_USER_ASSETS_PUBLIC_BASE_URL}/{key}"
 
-    endpoint = (AWS_S3_ENDPOINT or "").rstrip("/")
-    use_path = str(AWS_S3_USE_PATH_STYLE).lower() == "true"
-
     # Local / custom endpoint (LocalStack): path-style public URL.
-    if endpoint and (
-        "localhost" in endpoint
-        or "127.0.0.1" in endpoint
-        or "localstack" in endpoint.lower()
-        or use_path
-    ):
+    if _is_local_endpoint():
+        endpoint = (AWS_S3_ENDPOINT or "").rstrip("/")
         return f"{endpoint}/{bucket}/{key}"
 
     # Standard AWS virtual-hosted–style public URL.

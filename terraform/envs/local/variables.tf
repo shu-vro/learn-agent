@@ -35,3 +35,21 @@ variable "bucket_name" {
   type        = string
   default     = "my-disposable-assets-bucket"
 }
+
+variable "user_assets_bucket_name" {
+  description = "Chat images bucket (matches AWS_S3_USER_ASSETS_BUCKET default)."
+  type        = string
+  default     = "userassets"
+}
+
+variable "user_voices_bucket_name" {
+  description = "Read-aloud audio bucket (matches AWS_S3_USER_VOICES_BUCKET default)."
+  type        = string
+  default     = "user-voices"
+}
+
+variable "cors_allowed_origins" {
+  description = "Origins allowed to read chat images directly from S3."
+  type        = list(string)
+  default     = ["*"]
+}
