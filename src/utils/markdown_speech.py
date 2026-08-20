@@ -25,8 +25,6 @@ def markdown_to_speech(text: str) -> str:
     for block in soup.find_all("pre"):
         block.decompose()
 
-    # Separate blocks (and table cells) so sentences don't run together, while
-    # inline markup (bold, links, inline code) stays part of its sentence.
     for tag in soup.find_all(_BLOCK_TAGS):
         tag.append("\n")
     for cell in soup.find_all(["td", "th"]):
