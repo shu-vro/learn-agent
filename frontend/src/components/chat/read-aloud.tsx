@@ -127,7 +127,7 @@ export function useReadAloud(projectId: string | null): ReadAloud {
 export function ReadAloudControls({ reader }: { reader: ReadAloud }) {
   return (
     <div className="pointer-events-none sticky bottom-3 z-20 flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/60 bg-background/95 py-1 pr-1 pl-2 shadow-lg backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/60 bg-accent/20 py-1 pr-1 pl-2 shadow-lg backdrop-blur">
         <Button
           type="button"
           size="icon-sm"
