@@ -83,15 +83,15 @@ async def get_current_user(
     token = get_token_from_cookie(request)
     payload = decode_access_token(token)
 
-    email = payload.get("email")
+    user_id = payload.get("sub")
 
-    if not email:
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
         )
 
-    user = await User.get_by_email(session, email)
+    user = await session.get(User, user_id)
 
     if not user:
         raise HTTPException(

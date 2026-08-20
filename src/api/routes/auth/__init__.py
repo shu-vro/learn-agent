@@ -78,7 +78,7 @@ PreferencesResponse = BaseResponse[UserPreferencesPublic]
 
 
 def _issue_cookie(response: Response, user: User) -> None:
-    token = create_access_token({"sub": user.id, "email": user.email})
+    token = create_access_token({"sub": user.id})
     set_auth_cookie(response, token)
 
 
