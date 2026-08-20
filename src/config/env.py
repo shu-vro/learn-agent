@@ -53,6 +53,7 @@ AWS_S3_ENDPOINT = os.environ.get("AWS_S3_ENDPOINT", "http://localhost:4566")
 AWS_S3_USE_PATH_STYLE = os.environ.get("AWS_S3_USE_PATH_STYLE", "true")
 AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET", "my-disposable-assets-bucket")
 AWS_S3_USER_ASSETS_BUCKET = os.environ.get("AWS_S3_USER_ASSETS_BUCKET", "userassets")
+AWS_S3_USER_VOICES_BUCKET = os.environ.get("AWS_S3_USER_VOICES_BUCKET", "user_voices")
 # Optional CDN / stable public base for userassets (no trailing slash).
 # Example: https://cdn.example.com  or leave empty to use S3 endpoint URLs.
 AWS_S3_USER_ASSETS_PUBLIC_BASE_URL = os.environ.get(
