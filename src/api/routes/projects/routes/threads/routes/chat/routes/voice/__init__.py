@@ -13,6 +13,7 @@ from src.lib.aws import (
     download_user_asset_bytes,
     upload_bytes_to_s3,
 )
+from src.config.voice_config import voice_dict, VoiceConfig
 
 router = APIRouter(tags=["chats"])
 
@@ -23,9 +24,9 @@ def voice_s3_key(user_id: str, message_id: str) -> str:
     return f"{user_id}/{message_id}.mp3"
 
 
-async def tts_stream(text: str, s3_key: str, voice: str = "en-US-AriaNeural"):
+async def tts_stream(text: str, s3_key: str, voice: VoiceConfig = voice_dict["female"]):
     """Stream TTS audio to the client and persist the full clip to S3."""
-    communicate = edge_tts.Communicate(text, voice)
+    communicate = edge_tts.Communicate(text, voice.voice_name)
     parts: list[bytes] = []
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -54,8 +55,11 @@ async def stream_voice(
     chat_id: str,
     message_id: str,
     session: AsyncSession = Depends(get_session),
+    voice_id: str = "female",
 ):
     user = request.state.user
+    print(user)
+    return None
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 

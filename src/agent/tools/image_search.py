@@ -154,7 +154,13 @@ def duckduckgo_image_search(query: str, limit: int = _DEFAULT_LIMIT) -> str:
     try:
         images = duckduckgo_images(query, limit=limit)
     except Exception as exc:
-        return f'Image search failed for query "{query}": {exc}'
+        print(
+            f"duckduckgo_image_search failed for query {query!r}", log_level="WARNING"
+        )
+        return (
+            f'Image search failed for query "{query}": '
+            f"{type(exc).__name__}: {exc}. Answer without images."
+        )
     return _format_image_results(query, images)
 
 

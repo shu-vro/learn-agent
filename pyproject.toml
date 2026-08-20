@@ -18,6 +18,7 @@ dependencies = [
     "detect-secrets>=1.5.0",
     "docling>=2.101.0",
     "duckduckgo-search>=8.1.1",
+    "edge-tts>=7.2.8",
     "faiss-cpu>=1.13.2",
     "fakeredis>=2.36.1",
     "fastapi[standard]>=0.136.1",

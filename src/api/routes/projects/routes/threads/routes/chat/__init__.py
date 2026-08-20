@@ -32,6 +32,9 @@ from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from src.db.models.thread import Thread
 from src.utils.api.BaseResponse import BaseResponse
+from src.api.routes.projects.routes.threads.routes.chat.routes.voice import (
+    router as voice_router,
+)
 from src.utils.chat_images import (
     ValidatedChatImage,
     ensure_model_image_data_urls,
@@ -801,3 +804,6 @@ async def chat_endpoint(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+router.include_router(voice_router, prefix="/voice")
