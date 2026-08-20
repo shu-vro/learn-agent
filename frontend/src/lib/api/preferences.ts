@@ -7,7 +7,20 @@ export type EquationOcrLib = "local" | "llm";
 export type ChatModelPreferences = {
   default_model: string;
   reasoning_effort: ReasoningEffort;
+  voice: string;
 };
+
+export type VoiceOption = {
+  id: string;
+  label: string;
+};
+
+export type VoiceConfig = {
+  voices: VoiceOption[];
+  default_voice_id: string;
+};
+
+export const FALLBACK_VOICE_ID = "en-US-AriaNeural";
 
 export type IngestionPreferences = {
   use_vision_model: boolean;
@@ -46,6 +59,17 @@ export async function fetchIngestionConfig(): Promise<IngestionConfig> {
   return {
     equation_ocr_options: ["local", "llm"],
     default_equation_ocr_lib: "local",
+  };
+}
+
+export async function fetchVoiceConfig(): Promise<VoiceConfig> {
+  const data = await get({ endpoint: "/config/voices" });
+  if (data && typeof data === "object" && "voices" in data) {
+    return data as VoiceConfig;
+  }
+  return {
+    voices: [{ id: FALLBACK_VOICE_ID, label: "Aria — US English, female" }],
+    default_voice_id: FALLBACK_VOICE_ID,
   };
 }
 

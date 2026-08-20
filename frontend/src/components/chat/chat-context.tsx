@@ -39,6 +39,7 @@ type SendMessageOptions = {
 };
 
 type ChatWorkspaceValue = {
+  projectId: string | null;
   threads: Thread[];
   activeThreadId: string;
   setActiveThreadId: (id: string) => void;
@@ -958,6 +959,7 @@ export function ChatWorkspaceProvider({
 
   const value = useMemo<ChatWorkspaceValue>(
     () => ({
+      projectId,
       threads,
       activeThreadId,
       setActiveThreadId,
@@ -977,6 +979,7 @@ export function ChatWorkspaceProvider({
       deleteArtifact,
     }),
     [
+      projectId,
       threads,
       activeThreadId,
       messages,

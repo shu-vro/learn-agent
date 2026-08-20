@@ -7,26 +7,28 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.voice_config import resolve_voice_id
 from src.db import get_session
 from src.db.models.chat import Chat, ChatMessage
+from src.db.models.preferences import Preferences
 from src.lib.aws import (
     download_user_asset_bytes,
     upload_bytes_to_s3,
 )
-from src.config.voice_config import voice_dict, VoiceConfig
 
 router = APIRouter(tags=["chats"])
 
 VOICE_BUCKET = "uservoices"
 
 
-def voice_s3_key(user_id: str, message_id: str) -> str:
-    return f"{user_id}/{message_id}.mp3"
+def voice_s3_key(user_id: str, message_id: str, voice_id: str) -> str:
+    """One clip per (user, message, voice) — switching voice re-synthesises."""
+    return f"{user_id}/{message_id}/{voice_id}.mp3"
 
 
-async def tts_stream(text: str, s3_key: str, voice: VoiceConfig = voice_dict["female"]):
+async def tts_stream(text: str, s3_key: str, voice: str):
     """Stream TTS audio to the client and persist the full clip to S3."""
-    communicate = edge_tts.Communicate(text, voice.voice_name)
+    communicate = edge_tts.Communicate(text, voice)
     parts: list[bytes] = []
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -52,14 +54,12 @@ async def tts_stream(text: str, s3_key: str, voice: VoiceConfig = voice_dict["fe
 @router.get("/")
 async def stream_voice(
     request: Request,
+    project_id: str,
     chat_id: str,
     message_id: str,
     session: AsyncSession = Depends(get_session),
-    voice_id: str = "female",
 ):
     user = request.state.user
-    print(user)
-    return None
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -79,11 +79,14 @@ async def stream_voice(
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
+    prefs = await Preferences.get_or_create(session, user.id)
+    voice = resolve_voice_id(prefs.default_voice_id)
+
     headers = {
         "Content-Disposition": 'inline; filename="output.mp3"',
         "Cache-Control": "no-cache",
     }
-    s3_key = voice_s3_key(user.id, message_id)
+    s3_key = voice_s3_key(user.id, message_id, voice)
 
     try:
         audio, _ = await asyncio.to_thread(
@@ -98,7 +101,7 @@ async def stream_voice(
         )
 
     return StreamingResponse(
-        tts_stream(message, s3_key),
+        tts_stream(message, s3_key, voice),
         media_type="audio/mpeg",
         headers=headers,
     )

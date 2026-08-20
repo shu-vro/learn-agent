@@ -1,6 +1,6 @@
 "use client";
 
-import { CopyIcon, RefreshCcwIcon } from "lucide-react";
+import { CopyIcon, RefreshCcwIcon, Volume2Icon } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { FormEvent } from "react";
 import {
@@ -35,6 +35,12 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import { useChatWorkspace } from "@/components/chat/chat-context";
+import {
+  messageAnchorId,
+  type ReadAloud,
+  ReadAloudControls,
+  useReadAloud,
+} from "@/components/chat/read-aloud";
 import { UsageDetailsButton } from "@/components/chat/usage-details";
 import type {
   ChatMessage,
@@ -147,10 +153,12 @@ function AssistantMessage({
   message,
   onRegenerate,
   onBranchChange,
+  reader,
 }: {
   message: ChatMessage;
   onRegenerate: (messageId: string) => void;
   onBranchChange: (index: number) => void;
+  reader: ReadAloud;
 }) {
   const branches = message.branches ?? [];
   const hasBranches = branches.length > 1;
@@ -166,9 +174,11 @@ function AssistantMessage({
   const usage = current?.usage ?? message.usage;
   const regenerateId = current?.id ?? message.id;
 
+  const reading = reader.activeId === regenerateId;
+
   if (hasBranches) {
     return (
-      <Message from="assistant">
+      <Message from="assistant" id={messageAnchorId(regenerateId)}>
         <MessageBranch
           key={`${message.id}-${branches.length}`}
           defaultBranch={active}
@@ -211,16 +221,25 @@ function AssistantMessage({
               >
                 <CopyIcon className="size-3" />
               </MessageAction>
+              <MessageAction
+                label="Read aloud"
+                tooltip="Read aloud"
+                onClick={() => reader.start(regenerateId, message.chatId ?? "")}
+                disabled={Boolean(streaming) || !message.chatId}
+              >
+                <Volume2Icon className="size-3" />
+              </MessageAction>
               {usage ? <UsageDetailsButton usage={usage} /> : null}
             </div>
           </MessageActions>
+          {reading ? <ReadAloudControls reader={reader} /> : null}
         </MessageBranch>
       </Message>
     );
   }
 
   return (
-    <Message from="assistant">
+    <Message from="assistant" id={messageAnchorId(regenerateId)}>
       <AssistantBody
         message={message}
         branchContent={content}
@@ -246,8 +265,17 @@ function AssistantMessage({
         >
           <CopyIcon className="size-3" />
         </MessageAction>
+        <MessageAction
+          label="Read aloud"
+          tooltip="Read aloud"
+          onClick={() => reader.start(regenerateId, message.chatId ?? "")}
+          disabled={Boolean(streaming) || !message.chatId}
+        >
+          <Volume2Icon className="size-3" />
+        </MessageAction>
         {usage ? <UsageDetailsButton usage={usage} /> : null}
       </MessageActions>
+      {reading ? <ReadAloudControls reader={reader} /> : null}
     </Message>
   );
 }
@@ -260,12 +288,14 @@ export function ChatMain({
   promptGlobalDrop?: boolean;
 }) {
   const {
+    projectId,
     messages,
     appendUserMessage,
     regenerateMessage,
     setActiveBranch,
     isStreaming,
   } = useChatWorkspace();
+  const reader = useReadAloud(projectId);
 
   return (
     <div
@@ -320,6 +350,7 @@ export function ChatMain({
                     regenerateMessage(m.id, messageId)
                   }
                   onBranchChange={(index) => setActiveBranch(m.id, index)}
+                  reader={reader}
                 />
               ),
             )

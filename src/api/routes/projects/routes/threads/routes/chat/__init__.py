@@ -806,4 +806,4 @@ async def chat_endpoint(
     )
 
 
-router.include_router(voice_router, prefix="/voice")
+router.include_router(voice_router, prefix="/{project_id}/chats/voice")

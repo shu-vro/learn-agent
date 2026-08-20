@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 
 from src.config.constants import DEFAULT_LLM_MODEL, DEFAULT_OCR_LIB
+from src.config.voice_config import DEFAULT_VOICE_ID, resolve_voice_id
 from src.db.models.preferences import Preferences
 
 ThemeChoice = Literal["system", "light", "dark"]
@@ -30,6 +31,7 @@ class IngestionPreferences(BaseModel):
 class ChatModelPreferences(BaseModel):
     default_model: str = DEFAULT_LLM_MODEL
     reasoning_effort: ReasoningEffortChoice | None = None
+    voice: str = DEFAULT_VOICE_ID
 
 
 class UserPreferencesPublic(BaseModel):
@@ -53,6 +55,7 @@ class UserPreferencesPublic(BaseModel):
             chat=ChatModelPreferences(
                 default_model=prefs.default_llm_model or DEFAULT_LLM_MODEL,
                 reasoning_effort=reasoning,
+                voice=resolve_voice_id(prefs.default_voice_id),
             ),
         )
 
@@ -67,6 +70,7 @@ class IngestionPreferencesUpdate(BaseModel):
 class ChatModelPreferencesUpdate(BaseModel):
     default_model: str | None = None
     reasoning_effort: ReasoningEffortChoice | None = None
+    voice: str | None = None
 
 
 class UserPreferencesUpdate(BaseModel):
@@ -132,3 +136,5 @@ def apply_preferences_update(
             prefs.default_llm_model = chat.default_model
         if "reasoning_effort" in chat.model_fields_set:
             prefs.default_reasoning_effort = chat.reasoning_effort
+        if chat.voice is not None:
+            prefs.default_voice_id = resolve_voice_id(chat.voice)

@@ -4,6 +4,7 @@ from typing import Optional
 import jwt
 from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.db import get_session
 from src.db.models.user import User
@@ -91,7 +92,7 @@ async def get_current_user(
             detail="Invalid token payload",
         )
 
-    user = await session.get(User, user_id)
+    user = await session.get(User, user_id, options=[selectinload(User.preferences)])
 
     if not user:
         raise HTTPException(

@@ -37,8 +37,11 @@ import type {
   ChatModelPreferences,
   IngestionPreferences,
   ThemeChoice,
+  VoiceConfig,
 } from "@/lib/api/preferences";
 import {
+  FALLBACK_VOICE_ID,
+  fetchVoiceConfig,
   updatePassword,
   updatePreferences,
   updateProfile,
@@ -84,7 +87,7 @@ const NAV: {
   {
     id: "chat",
     label: "Chat model",
-    description: "Default model & reasoning",
+    description: "Default model, reasoning & voice",
     icon: BotIcon,
     iconClass: "bg-sky-500/15 text-sky-500",
   },
@@ -157,7 +160,9 @@ export function SettingsPage() {
   const [chat, setChat] = useState<ChatModelPreferences>({
     default_model: "omlx:gemma-4-e4b-it-4bit",
     reasoning_effort: null,
+    voice: FALLBACK_VOICE_ID,
   });
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
   const [modelPresets, setModelPresets] =
     useState<Awaited<ReturnType<typeof fetchModelPresets>>>(null);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -187,9 +192,13 @@ export function SettingsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const presets = await fetchModelPresets();
+      const [presets, voices] = await Promise.all([
+        fetchModelPresets(),
+        fetchVoiceConfig(),
+      ]);
       if (!cancelled) {
         setModelPresets(presets);
+        setVoiceConfig(voices);
       }
     })();
     return () => {
@@ -423,6 +432,37 @@ export function SettingsPage() {
                         ) : (
                           <p className="text-muted-foreground text-sm">
                             Loading models…
+                          </p>
+                        )}
+                      </SettingsField>
+                      <SettingsField
+                        label="Read-aloud voice"
+                        hint="Used when you play a message with the read aloud button."
+                      >
+                        {voiceConfig ? (
+                          <Select
+                            value={chat.voice}
+                            onValueChange={(voice) =>
+                              setChat({
+                                ...chat,
+                                voice: voice ?? FALLBACK_VOICE_ID,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {voiceConfig.voices.map((voice) => (
+                                <SelectItem key={voice.id} value={voice.id}>
+                                  {voice.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="text-muted-foreground text-sm">
+                            Loading voices…
                           </p>
                         )}
                       </SettingsField>
