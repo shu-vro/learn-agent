@@ -6,6 +6,7 @@ from src.schemas.preferences import (
     UserPreferencesUpdate,
     apply_preferences_update,
 )
+from src.utils.markdown_speech import markdown_to_speech
 
 
 class _Prefs:
@@ -49,3 +50,25 @@ def test_preference_update_leaves_voice_alone_when_omitted():
         UserPreferencesUpdate(chat=ChatModelPreferencesUpdate(default_model="x")),
     )
     assert prefs.default_voice_id == "en-IN-NeerjaNeural"
+
+
+def test_markdown_is_not_read_as_syntax():
+    spoken = markdown_to_speech("**it is completely normal**, see `x` here.")
+    assert spoken == "it is completely normal, see x here."
+
+
+def test_markdown_blocks_are_separated_but_sentences_are_not():
+    spoken = markdown_to_speech(
+        "# Title\n\nA [link](http://a.b) inline.\n\n- one\n- two"
+    )
+    assert spoken == "Title\nA link inline.\none\ntwo"
+
+
+def test_code_fences_are_dropped():
+    spoken = markdown_to_speech("Before.\n\n```py\nprint(1)\n```\n\nAfter.")
+    assert spoken == "Before.\nAfter."
+
+
+def test_empty_and_syntax_only_markdown_yield_nothing():
+    assert markdown_to_speech("") == ""
+    assert markdown_to_speech("---") == ""
