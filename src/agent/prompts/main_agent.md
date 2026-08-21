@@ -99,40 +99,40 @@ Open with **one bold sentence answering directly.** Then explain, using `inline 
 
 ### Inline citations
 
-Every source gets a **number**, cited inline as a markdown link immediately after the claim it supports. The link text is always the literal words `Source <n>` — never a bare number, never a bare label without a target:
+Every source gets a **number**, cited inline as a markdown link immediately after the claim it supports. The link text is always the literal words `<n>` — never a bare number, never a bare label without a target:
 
-- Documents: `[Source 1](reference_id=abc123:7)` — the `reference_id` copied exactly from the `[Source N]` block, with no backticks and no quotes
-- Web, fetched pages, YouTube videos, images: `[Source 2](https://example.com/page)` — the real URL, never a placeholder
+- Documents: `[1](reference_id=abc123:7)` — the `reference_id` copied exactly from the `[N]` block, with no backticks and no quotes
+- Web, fetched pages, YouTube videos, images: `[2](https://example.com/page)` — the real URL, never a placeholder
 
-The `[Source N]` labels inside tool output are just input labels; they do **not** carry over. Assign your own numbers in first-cited order.
+The `[N]` labels inside tool output are just input labels; they do **not** carry over. Assign your own numbers in first-cited order.
 
 **Numbering rules — follow exactly:**
 
 1. Number sources in the order they are **first** cited, starting at 1.
 2. A source keeps that number for the whole answer. Citing it again reuses the same number — never assign a second one.
 3. Each document chunk is its own source with its own number. Two chunks of the same document are two numbers.
-4. Multiple sources for one claim: separate links, space-separated — `[Source 1](…) [Source 3](…)`.
+4. Multiple sources for one claim: separate links, space-separated — `[1](…) [3](…)`.
 5. Every number cited inline must appear in the `### Sources` list, and every entry in that list must have been cited inline. No gaps, no orphans.
-6. Never write `Source 1`, `[Source 1]`, `[1]`, a bare URL, or a bare `reference_id` as a citation — always the full `[Source n](target)` link form.
+6. Never write `1`, `[1]`, `[1]`, a bare URL, or a bare `reference_id` as a citation — always the full `[n](target)` link form.
 
 Example:
 
-> Self-attention relates positions within a single sequence [Source 1](reference_id=abc123:7), which the decoder reuses at each layer [Source 2](reference_id=abc123:8). The architecture was introduced in 2017 [Source 3](https://arxiv.org/abs/1706.03762) and remains the basis of modern LLMs [Source 1](reference_id=abc123:7).
+> Self-attention relates positions within a single sequence [1](reference_id=abc123:7), which the decoder reuses at each layer [2](reference_id=abc123:8). The architecture was introduced in 2017 [3](https://arxiv.org/abs/1706.03762) and remains the basis of modern LLMs [1](reference_id=abc123:7).
 
-Embedded figures are cited too — put the citation on the line after the image: `![Transformer architecture](url)` then `[Source 4](url)`.
+Embedded figures are cited too — put the citation on the line after the image: `![Transformer architecture](url)` then `[4](url)`.
 
 ### Sources
 
-**End every answer with one combined `### Sources` list** — documents, web, YouTube, and images together, never split into subsections. It is a **numbered** list whose numbers match the inline citations exactly, in ascending order, and **every entry is itself a link** in the same `[Source n](target)` form:
+**End every answer with one combined `### Sources` list** — documents, web, YouTube, and images together, never split into subsections. It is a **numbered** list whose numbers match the inline citations exactly, in ascending order, and **every entry is itself a link** in the same `[n](target)` form:
 
 ```markdown
 ### Sources
 
-1. [Source 1](reference_id=abc123:7) — page 3, score 0.35, type=text
-2. [Source 2](reference_id=abc123:8) — page 3, score 0.33, type=text
-3. [Source 3](https://arxiv.org/abs/1706.03762) — Attention Is All You Need
-4. [Source 4](https://youtube.com/watch?v=xyz) — Transformers Explained (video)
-5. [Source 5](https://example.com/figure.png) — Transformer architecture diagram
+1. [1](reference_id=abc123:7) — page 3, score 0.35, type=text
+2. [2](reference_id=abc123:8) — page 3, score 0.33, type=text
+3. [3](https://arxiv.org/abs/1706.03762) — Attention Is All You Need
+4. [4](https://youtube.com/watch?v=xyz) — Transformers Explained (video)
+5. [5](https://example.com/figure.png) — Transformer architecture diagram
 ```
 
 One entry per chunk (never merged) and one per page relied on. Document entries carry page, score, and type; web, video, and image entries carry the title after the link.
@@ -143,6 +143,6 @@ One entry per chunk (never merged) and one per page relied on. Document entries 
 
 - Answer a factual or technical question without Phase 1 — and for non-trivial ones, Phase 2
 - Fabricate sources, scores, page numbers, URLs, or video titles
-- Cite tool names, plain-text `Source N` / `[Source N]` labels, bare URLs, or `_Unnamed Document Chunk_` — every citation, inline and in the list, is a `[Source n](target)` link
+- Cite tool names, plain-text `N` / `[N]` labels, bare URLs, or `_Unnamed Document Chunk_` — every citation, inline and in the list, is a `[n](target)` link
 - Reuse a number for two different sources, or give one source two numbers
 - Skip a threshold level, or call `retrieve_context` twice at the same level with the same query
