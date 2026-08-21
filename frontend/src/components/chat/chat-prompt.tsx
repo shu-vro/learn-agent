@@ -1,6 +1,7 @@
 "use client";
 
 import type { FileUIPart } from "ai";
+import { QuoteIcon, XIcon } from "lucide-react";
 import type { FormEvent } from "react";
 import { memo, useCallback, useState } from "react";
 import {
@@ -82,6 +83,8 @@ export const ChatPrompt = ({
   onSubmit,
   globalDrop = true,
   disabled = false,
+  reference = null,
+  onClearReference,
 }: {
   onSubmit: (
     text: string,
@@ -90,6 +93,8 @@ export const ChatPrompt = ({
   ) => void;
   globalDrop?: boolean;
   disabled?: boolean;
+  reference?: { id: string; text: string } | null;
+  onClearReference?: () => void;
 }) => {
   const {
     models,
@@ -144,6 +149,22 @@ export const ChatPrompt = ({
     <div className="size-full">
       <PromptInput globalDrop={globalDrop} multiple onSubmit={handleSubmit}>
         <PromptInputAttachmentsDisplay />
+        {reference ? (
+          <div className="flex items-start gap-2 border-border/50 border-b px-3 py-2 text-muted-foreground text-xs">
+            <QuoteIcon className="mt-0.5 size-3 shrink-0" />
+            <span className="line-clamp-2 min-w-0 flex-1">
+              {reference.text}
+            </span>
+            <button
+              type="button"
+              aria-label="Remove reference"
+              className="shrink-0 hover:text-foreground"
+              onClick={onClearReference}
+            >
+              <XIcon className="size-3" />
+            </button>
+          </div>
+        ) : null}
         <PromptInputBody>
           <PromptInputTextarea disabled={disabled} />
         </PromptInputBody>

@@ -3,6 +3,7 @@
 import { CopyIcon, RefreshCcwIcon, Volume2Icon } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { FormEvent } from "react";
+import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -61,6 +62,76 @@ const ChatPrompt = dynamic(
     ),
   },
 );
+
+const ANCHOR_PREFIX = "message-";
+
+export type PendingReference = { id: string; text: string };
+
+/** Floating "Add as reference" button over any selection inside a message. */
+function SelectionTooltip({
+  onAdd,
+}: {
+  onAdd: (reference: PendingReference) => void;
+}) {
+  const [hit, setHit] = useState<
+    (PendingReference & { top: number; left: number }) | null
+  >(null);
+
+  useEffect(() => {
+    const sync = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      if (!selection || selection.isCollapsed || !text) {
+        setHit(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const node = range.commonAncestorContainer;
+      const el = (
+        node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+      ) as HTMLElement | null;
+      const anchor = el?.closest<HTMLElement>(`[id^="${ANCHOR_PREFIX}"]`);
+      if (!anchor) {
+        setHit(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      setHit({
+        id: anchor.id.slice(ANCHOR_PREFIX.length),
+        text,
+        top: rect.top,
+        left: rect.left + rect.width / 2,
+      });
+    };
+
+    document.addEventListener("selectionchange", sync);
+    window.addEventListener("scroll", sync, true);
+    return () => {
+      document.removeEventListener("selectionchange", sync);
+      window.removeEventListener("scroll", sync, true);
+    };
+  }, []);
+
+  if (!hit) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      className="-translate-x-1/2 -translate-y-full fixed z-50 rounded-md border border-border bg-popover px-2 py-1 text-popover-foreground text-xs shadow-md"
+      style={{ top: hit.top - 8, left: hit.left }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        onAdd({ id: hit.id, text: hit.text });
+        window.getSelection()?.removeAllRanges();
+        setHit(null);
+      }}
+    >
+      Add as reference
+    </button>
+  );
+}
 
 function ToolCallView({ tool }: { tool: ChatToolCall }) {
   return (
@@ -296,6 +367,7 @@ export function ChatMain({
     isStreaming,
   } = useChatWorkspace();
   const reader = useReadAloud(projectId);
+  const [reference, setReference] = useState<PendingReference | null>(null);
 
   return (
     <div
@@ -304,6 +376,7 @@ export function ChatMain({
         className,
       )}
     >
+      <SelectionTooltip onAdd={setReference} />
       <div className="flex shrink-0 items-center border-border/30 border-b px-4 py-3">
         <h1 className="font-medium text-sm">Chat</h1>
       </div>
@@ -317,12 +390,25 @@ export function ChatMain({
           ) : (
             messages.map((m) =>
               m.role === "user" ? (
-                <Message key={m.id} from="user">
+                <Message key={m.id} from="user" id={messageAnchorId(m.id)}>
                   <MessageContent>
                     {m.selection ? (
-                      <blockquote className="mb-2 border-border border-l-2 pl-3 text-muted-foreground text-xs">
+                      <button
+                        type="button"
+                        title="Jump to referenced message"
+                        className="mb-2 block w-full border-border border-l-2 pl-3 text-left text-muted-foreground text-xs hover:text-foreground"
+                        onClick={() =>
+                          m.referenceId &&
+                          document
+                            .getElementById(messageAnchorId(m.referenceId))
+                            ?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "center",
+                            })
+                        }
+                      >
                         {m.selection}
-                      </blockquote>
+                      </button>
                     ) : null}
                     {m.imageUrls?.length ? (
                       <div className="mb-2 flex flex-wrap gap-2">
@@ -364,12 +450,17 @@ export function ChatMain({
           <ChatPrompt
             globalDrop={promptGlobalDrop}
             disabled={isStreaming}
+            reference={reference}
+            onClearReference={() => setReference(null)}
             onSubmit={(text, e: FormEvent<HTMLFormElement>, images) => {
               e.preventDefault();
               if (isStreaming) return;
               appendUserMessage(text, {
                 images: images?.length ? images : undefined,
+                selection: reference?.text,
+                referenceId: reference?.id,
               });
+              setReference(null);
             }}
           />
         </div>
