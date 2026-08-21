@@ -316,11 +316,6 @@ async def _count_user_turns_up_to_group(
     return len(user_chats)
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-
 @router.get("/{project_id}/threads/{thread_id}/chats")
 async def list_thread_chats(
     request: Request,

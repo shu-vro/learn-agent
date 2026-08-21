@@ -45,3 +45,6 @@
 - [x] add multimodal support for rag_agent.py
 - [ ] interactive chat
 - [ ] more tools
+- [ ] selection based chat
+- [ ] need to add references in the chat and also a section below chat that will show all references and artifacts: eg: websites, paper references, videos in a seperate sections, and make sure that section is not cluttered.
+  - [ ] references everywhere and clicking on references would open the part of chunk in the specific artifact. if paper, it would navigate to that paper and show that section. on clicking on a video or audio references, it would open a modal just like it's doing now.
