@@ -52,10 +52,6 @@ export type ChatArtifact = {
   url: string;
   title?: string | null;
   cited: boolean;
-  /** Documents only — resolved server-side so the preview panel can jump to it. */
-  documentId?: string | null;
-  documentName?: string | null;
-  chunkUuid?: string | null;
   page?: string | null;
   score?: string | null;
 };
@@ -322,11 +318,8 @@ function mapArtifact(artifact: ApiArtifact): ChatArtifact {
     id: artifact.id,
     type,
     url: artifact.artifact_url,
-    title: asOptionalString(meta.title) ?? asOptionalString(meta.document_name),
+    title: asOptionalString(meta.title),
     cited: meta.cited === true,
-    documentId: asOptionalString(meta.document_id),
-    documentName: asOptionalString(meta.document_name),
-    chunkUuid: asOptionalString(meta.chunk_uuid),
     page: asOptionalString(meta.page),
     score: asOptionalString(meta.score),
   };

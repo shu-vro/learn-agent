@@ -82,6 +82,7 @@ export function ArtifactsPanel({
     selectedArtifactId,
     setSelectedArtifactId,
     focusedChunkId,
+    chunkFocusSeq,
     addArtifactsFromFiles,
     deleteArtifact,
   } = useChatWorkspace();
@@ -110,11 +111,12 @@ export function ArtifactsPanel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const showIngestionSettings = Boolean(projectId);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chunkFocusSeq re-opens the preview when the same chunk is clicked again
   useEffect(() => {
     if (isIngesting || isUploading || focusedChunkId) {
       setPreviewOpen(true);
     }
-  }, [isIngesting, isUploading, focusedChunkId]);
+  }, [isIngesting, isUploading, focusedChunkId, chunkFocusSeq]);
 
   const processFiles = useCallback(
     async (files: FileList | File[] | null | undefined) => {
@@ -379,6 +381,7 @@ export function ArtifactsPanel({
                         projectId={projectId}
                         artifactId={selected.id}
                         focusedChunkId={focusedChunkId}
+                        focusSeq={chunkFocusSeq}
                       />
                     )}
                   </div>

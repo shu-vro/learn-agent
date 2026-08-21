@@ -26,7 +26,7 @@ from src.agent.rag_core import (
     truncate_checkpoint_before_turn,
 )
 from src.db import get_session
-from src.agent.artifact_collector import collect_artifacts, resolve_document_artifacts
+from src.agent.artifact_collector import collect_artifacts
 from src.db.models.chat import (
     Artifacts,
     Chat,
@@ -200,11 +200,6 @@ class ThreadBrief(BaseModel):
 
 
 ThreadChatsResponse = BaseResponse[list[ThreadChatTurn]]
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -757,9 +752,7 @@ async def chat_endpoint(
                             )
                             await persist_session.flush()
 
-                    artifacts = await resolve_document_artifacts(
-                        persist_session, collect_artifacts(tools, msg.message or "")
-                    )
+                    artifacts = collect_artifacts(tools, msg.message or "")
                     for artifact in artifacts:
                         persist_session.add(
                             Artifacts(chat_message_id=msg.id, **artifact)

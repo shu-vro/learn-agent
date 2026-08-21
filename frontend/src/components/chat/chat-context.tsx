@@ -58,6 +58,8 @@ type ChatWorkspaceValue = {
   setSelectedArtifactId: (id: string | null) => void;
   /** Chunk the preview panel should scroll to and highlight, if any. */
   focusedChunkId: string | null;
+  /** Bumped on every focusChunk call, so repeat clicks re-scroll / re-open. */
+  chunkFocusSeq: number;
   /** Open a document citation in the preview panel. */
   focusChunk: (documentId: string, chunkId: string) => void;
   addArtifactFromFile: (
@@ -170,7 +172,10 @@ export function ChatWorkspaceProvider({
     Record<string, ChatMessage[]>
   >({});
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
+  const [focusedChunk, setFocusedChunk] = useState<{
+    id: string;
+    seq: number;
+  } | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
@@ -971,7 +976,7 @@ export function ChatWorkspaceProvider({
 
   const focusChunk = useCallback((documentId: string, chunkId: string) => {
     setSelectedArtifactId(documentId);
-    setFocusedChunkId(chunkId);
+    setFocusedChunk((prev) => ({ id: chunkId, seq: (prev?.seq ?? 0) + 1 }));
   }, []);
 
   const value = useMemo<ChatWorkspaceValue>(
@@ -991,7 +996,8 @@ export function ChatWorkspaceProvider({
       artifacts,
       selectedArtifactId,
       setSelectedArtifactId,
-      focusedChunkId,
+      focusedChunkId: focusedChunk?.id ?? null,
+      chunkFocusSeq: focusedChunk?.seq ?? 0,
       focusChunk,
       addArtifactFromFile,
       addArtifactsFromFiles,
@@ -1011,7 +1017,7 @@ export function ChatWorkspaceProvider({
       deleteThread,
       artifacts,
       selectedArtifactId,
-      focusedChunkId,
+      focusedChunk,
       focusChunk,
       addArtifactFromFile,
       addArtifactsFromFiles,

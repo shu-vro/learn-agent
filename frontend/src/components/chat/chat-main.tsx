@@ -45,11 +45,15 @@ import {
 } from "@/components/chat/read-aloud";
 import { UsageDetailsButton } from "@/components/chat/usage-details";
 import type {
-  ChatArtifact,
   ChatMessage,
   ChatTimelineItem,
   ChatToolCall,
 } from "@/lib/api/chat";
+import {
+  citationTarget,
+  linkifyCitations,
+  resolveCitation,
+} from "@/lib/citations";
 import { cn } from "@/lib/utils";
 
 const ChatPrompt = dynamic(
@@ -171,7 +175,6 @@ function AssistantBody({
   tools,
   streaming,
   activeThinkingStep,
-  artifacts,
 }: {
   message: ChatMessage;
   branchContent: string;
@@ -180,23 +183,19 @@ function AssistantBody({
   tools?: ChatToolCall[];
   streaming?: boolean;
   activeThinkingStep?: number | null;
-  artifacts?: ChatArtifact[];
 }) {
-  const { focusChunk } = useChatWorkspace();
-  // Document citations render as `[Source n](reference_id=<doc>:<chunk>)`; open
-  // them in the preview panel instead of letting the browser follow the href.
+  const { artifacts: projectArtifacts, focusChunk } = useChatWorkspace();
+  // Document citations open in the preview panel instead of navigating.
   const onCitationClick = (event: MouseEvent<HTMLDivElement>) => {
     const anchor = (event.target as HTMLElement).closest("a");
-    const href = anchor?.getAttribute("href") ?? "";
-    if (!href.startsWith("reference_id=")) {
+    const href = citationTarget(anchor?.getAttribute("href"));
+    if (!href) {
       return;
     }
     event.preventDefault();
-    const artifact = (artifacts ?? message.artifacts ?? []).find(
-      (a) => a.url === href,
-    );
-    if (artifact?.documentId && artifact.chunkUuid) {
-      focusChunk(artifact.documentId, artifact.chunkUuid);
+    const target = resolveCitation(href, projectArtifacts);
+    if (target) {
+      focusChunk(target.documentId, target.chunkId);
     }
   };
 
@@ -237,7 +236,7 @@ function AssistantBody({
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: the anchors handle keyboard activation */}
           <div onClick={onCitationClick}>
             <MessageResponse isAnimating={Boolean(streaming)}>
-              {branchContent || (streaming ? "…" : "")}
+              {linkifyCitations(branchContent) || (streaming ? "…" : "")}
             </MessageResponse>
           </div>
         </MessageContent>
@@ -293,7 +292,6 @@ function AssistantMessage({
                   tools={branch.tools}
                   streaming={branch.streaming}
                   activeThinkingStep={branch.activeThinkingStep}
-                  artifacts={branch.artifacts}
                 />
               </div>
             ))}
@@ -348,7 +346,6 @@ function AssistantMessage({
         tools={tools}
         streaming={streaming}
         activeThinkingStep={activeThinkingStep}
-        artifacts={artifacts}
       />
       <MessageActions>
         <MessageAction

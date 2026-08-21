@@ -51,6 +51,9 @@ router = APIRouter(tags=["artifacts"])
 class ArtifactRead(BaseModel):
     id: str
     name: str
+    # Content fingerprint; document citations address chunks by it
+    # (``reference_id=<sha256>:<chunk_id>``).
+    sha256: str | None = None
     chunks: Dict[str, Any] = {}
     ingestion_status: str = "completed"
     ingestion_stage: str | None = None
@@ -301,6 +304,7 @@ async def _upload_single_artifact(
                 ArtifactRead(
                     id=document.id,
                     name=document.name,
+                    sha256=document.sha256,
                     chunks={},
                     ingestion_status=document.ingestion_status,
                 ),
@@ -322,6 +326,7 @@ async def _upload_single_artifact(
             ArtifactRead(
                 id=document.id,
                 name=document.name,
+                sha256=document.sha256,
                 chunks={},
                 ingestion_status=document.ingestion_status,
             ),
@@ -377,6 +382,7 @@ async def _artifact_read_for_document(
     return ArtifactRead(
         id=document.id,
         name=document.name,
+        sha256=document.sha256,
         chunks=chunks,
         ingestion_status=document.ingestion_status,
         ingestion_stage=ingestion_progress.get("stage") if ingestion_progress else None,

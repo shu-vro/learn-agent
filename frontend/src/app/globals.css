@@ -137,3 +137,14 @@
     font-size: 18px;
   }
 }
+
+/* Document citations: `[Source 1](#reference_id=<doc>:<chunk>)` — see
+   linkifyCitations in components/chat/chat-main.tsx. */
+@layer components {
+  a[href^="#reference_id="] {
+    @apply mx-0.5 inline-flex cursor-pointer items-center rounded-full bg-primary/10 px-1.5 py-px align-baseline font-medium text-[0.75em] text-primary no-underline transition-colors;
+  }
+  a[href^="#reference_id="]:hover {
+    @apply bg-primary/20;
+  }
+}

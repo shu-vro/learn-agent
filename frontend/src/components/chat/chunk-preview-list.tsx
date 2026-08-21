@@ -25,6 +25,8 @@ type ChunkPreviewListProps = {
   artifactId?: string | null;
   /** Chunk to scroll to and highlight (a citation was clicked). */
   focusedChunkId?: string | null;
+  /** Bumped per citation click so clicking the same chunk twice re-scrolls. */
+  focusSeq?: number;
   className?: string;
 };
 
@@ -33,6 +35,7 @@ export function ChunkPreviewList({
   projectId,
   artifactId,
   focusedChunkId,
+  focusSeq,
   className,
 }: ChunkPreviewListProps) {
   const entries = sortedDisplayChunks(chunks);
@@ -60,6 +63,7 @@ export function ChunkPreviewList({
     };
   }, [projectId, artifactId]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusSeq re-scrolls when the same chunk is clicked again
   useEffect(() => {
     if (!focusedChunkId) {
       return;
@@ -72,7 +76,7 @@ export function ChunkPreviewList({
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusedChunkId]);
+  }, [focusedChunkId, focusSeq]);
 
   const handleGenerate = useCallback(
     async (chunkId: string, regenerate = false) => {

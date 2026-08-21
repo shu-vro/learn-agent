@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { ArtifactsPanel } from "@/components/chat/artifacts-panel";
+import { useChatWorkspace } from "@/components/chat/chat-context";
 import { ChatMain } from "@/components/chat/chat-main";
 import { ThreadsPanel } from "@/components/chat/threads-panel";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,15 @@ export function ChatShell({ projectId = null }: { projectId?: string | null }) {
   const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
   const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const { chunkFocusSeq } = useChatWorkspace();
   const router = useRouter();
+
+  // A document citation was clicked — the preview lives in the Files tab.
+  useEffect(() => {
+    if (chunkFocusSeq > 0) {
+      setMobileTab("files");
+    }
+  }, [chunkFocusSeq]);
 
   useEffect(() => {
     let cancelled = false;

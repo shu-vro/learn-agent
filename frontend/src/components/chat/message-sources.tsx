@@ -15,6 +15,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import type { ChatArtifact } from "@/lib/api/chat";
+import { resolveCitation } from "@/lib/citations";
 import { cn } from "@/lib/utils";
 
 const TYPE_LABEL: Record<ChatArtifact["type"], string> = {
@@ -84,7 +85,7 @@ function SourceCard({
   artifact: ChatArtifact;
   index: number | null;
 }) {
-  const { focusChunk } = useChatWorkspace();
+  const { artifacts, focusChunk } = useChatWorkspace();
   const badge =
     index === null ? null : (
       <span className="shrink-0 rounded-full bg-primary/10 px-1.5 font-medium text-[10px] text-primary leading-4">
@@ -98,15 +99,15 @@ function SourceCard({
   );
 
   if (artifact.type === "document") {
-    const canOpen = Boolean(artifact.documentId && artifact.chunkUuid);
+    const target = resolveCitation(artifact.url, artifacts);
     return (
       <button
         type="button"
-        className={cn(className, !canOpen && "cursor-default opacity-70")}
-        disabled={!canOpen}
+        className={cn(className, !target && "cursor-default opacity-70")}
+        disabled={!target}
         onClick={() => {
-          if (artifact.documentId && artifact.chunkUuid) {
-            focusChunk(artifact.documentId, artifact.chunkUuid);
+          if (target) {
+            focusChunk(target.documentId, target.chunkId);
           }
         }}
       >
@@ -118,15 +119,17 @@ function SourceCard({
           </span>
         </div>
         <span className="line-clamp-2 font-medium text-sm leading-snug">
-          {artifact.documentName ?? "Document"}
+          {target?.documentName ?? "Document"}
         </span>
         <span className="mt-auto text-muted-foreground text-xs">
           {[
-            artifact.page ? `p. ${artifact.page}` : null,
-            artifact.chunkUuid
-              ? `chunk ${artifact.url.split(":").pop()}`
+            artifact.page && artifact.page !== "n/a"
+              ? `p. ${artifact.page}`
               : null,
-            artifact.score ? `score ${artifact.score}` : null,
+            `chunk ${artifact.url.split(":").pop()}`,
+            artifact.score
+              ? `score ${Number(artifact.score).toFixed(2)}`
+              : null,
           ]
             .filter(Boolean)
             .join(" · ")}

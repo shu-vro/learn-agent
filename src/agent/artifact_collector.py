@@ -11,12 +11,6 @@ import json
 import re
 from typing import Any
 
-from sqlalchemy import select, tuple_
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.db.models.chunk import Chunk, documents_chunks
-from src.db.models.document import Document
-
 # `previous_reference_id=` in next_chunk headers must not match.
 _DOC_REF = re.compile(
     r"(?<![\w])reference_id=([^\s:,]+):(\d+)"
@@ -117,61 +111,4 @@ def collect_artifacts(
     return list(seen.values())
 
 
-async def resolve_document_artifacts(
-    session: AsyncSession, artifacts: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Add ``document_id`` / ``chunk_uuid`` / ``document_name`` to document artifacts.
-
-    Citations carry ``doc_id`` (``documents.sha256``) and a 1-based ``chunk_id``;
-    the UI addresses chunks by ``documents.id`` + ``chunks.id``. Resolving here
-    keeps that join out of the client. Artifacts whose chunk no longer exists are
-    dropped — a citation the preview cannot open is worse than none.
-    """
-    wanted = {
-        (meta["doc_id"], meta["chunk_id"] - 1)
-        for artifact in artifacts
-        if artifact["artifact_type"] == "document"
-        for meta in [artifact["artifact_metadata"]]
-        if meta.get("doc_id") and isinstance(meta.get("chunk_id"), int)
-    }
-    if not wanted:
-        return artifacts
-
-    rows = (
-        await session.execute(
-            select(
-                Document.sha256,
-                Document.id,
-                Document.name,
-                documents_chunks.c.order,
-                Chunk.id,
-            )
-            .select_from(documents_chunks)
-            .join(Chunk, documents_chunks.c.chunks_id == Chunk.id)
-            .join(Document, documents_chunks.c.document_id == Document.id)
-            .where(tuple_(Document.sha256, documents_chunks.c.order).in_(wanted))
-        )
-    ).all()
-    resolved = {
-        (sha256, order): (document_id, name, chunk_uuid)
-        for sha256, document_id, name, order, chunk_uuid in rows
-    }
-
-    kept: list[dict[str, Any]] = []
-    for artifact in artifacts:
-        meta = artifact["artifact_metadata"]
-        if artifact["artifact_type"] != "document":
-            kept.append(artifact)
-            continue
-        match = resolved.get((meta.get("doc_id"), (meta.get("chunk_id") or 0) - 1))
-        if match is None:
-            continue
-        document_id, name, chunk_uuid = match
-        meta["document_id"] = document_id
-        meta["document_name"] = name
-        meta["chunk_uuid"] = chunk_uuid
-        kept.append(artifact)
-    return kept
-
-
-__all__ = ["collect_artifacts", "resolve_document_artifacts"]
+__all__ = ["collect_artifacts"]

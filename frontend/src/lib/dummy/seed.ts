@@ -28,6 +28,8 @@ export type ArtifactChunkEntry = {
 export type ArtifactSeed = {
   id: string;
   name: string;
+  /** Content fingerprint; document citations address chunks by it. */
+  sha256?: string | null;
   chunks: Record<string, ArtifactChunkEntry | string>;
   ingestion_status?: string;
   upload_progress?: number;
