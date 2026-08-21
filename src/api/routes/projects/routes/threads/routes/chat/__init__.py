@@ -26,7 +26,14 @@ from src.agent.rag_core import (
     truncate_checkpoint_before_turn,
 )
 from src.db import get_session
-from src.db.models.chat import Chat, ChatMessage, ThinkingMessage, ToolMessage
+from src.agent.artifact_collector import collect_artifacts
+from src.db.models.chat import (
+    Artifacts,
+    Chat,
+    ChatMessage,
+    ThinkingMessage,
+    ToolMessage,
+)
 from src.db.models.document import Document
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
@@ -98,6 +105,16 @@ class ToolRead(BaseModel):
     created_at: datetime
 
 
+class ArtifactRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    artifact_type: str
+    artifact_url: str
+    artifact_metadata: dict[str, Any] | None = None
+    created_at: datetime
+
+
 class UsageIterationRead(BaseModel):
     iteration: int
     input_token: int = 0
@@ -131,6 +148,7 @@ class ChatMessageRead(BaseModel):
     usage: ChatUsageRead | None = None
     thinking_messages: list[ThinkingRead] = Field(default_factory=list)
     tool_messages: list[ToolRead] = Field(default_factory=list)
+    artifacts: list[ArtifactRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -222,6 +240,9 @@ def _chat_message_read(msg: ChatMessage) -> ChatMessageRead:
         thinking = [ThinkingRead.model_validate(t) for t in msg.thinking_messages]
     if "tool_messages" not in state.unloaded:
         tools = [ToolRead.model_validate(t) for t in msg.tool_messages]
+    artifacts: list[ArtifactRead] = []
+    if "artifacts" not in state.unloaded:
+        artifacts = [ArtifactRead.model_validate(a) for a in msg.artifacts]
     usage = _usage_from_message(msg)
     return ChatMessageRead(
         id=msg.id,
@@ -237,6 +258,7 @@ def _chat_message_read(msg: ChatMessage) -> ChatMessageRead:
         usage=usage,
         thinking_messages=thinking,
         tool_messages=tools,
+        artifacts=artifacts,
         created_at=msg.created_at,
         updated_at=msg.updated_at,
     )
@@ -269,6 +291,7 @@ async def _load_thread_chats(
         .options(
             selectinload(Chat.messages).selectinload(ChatMessage.thinking_messages),
             selectinload(Chat.messages).selectinload(ChatMessage.tool_messages),
+            selectinload(Chat.messages).selectinload(ChatMessage.artifacts),
         )
         .order_by(Chat.created_at.asc())
     )
@@ -734,14 +757,24 @@ async def chat_endpoint(
                             )
                             await persist_session.flush()
 
+                    artifacts = collect_artifacts(tools, msg.message or "")
+                    for artifact in artifacts:
+                        persist_session.add(
+                            Artifacts(chat_message_id=msg.id, **artifact)
+                        )
+
                     await persist_session.commit()
-                    await persist_session.refresh(msg)
+                    await persist_session.refresh(msg, ["artifacts"])
 
                     done_payload: dict[str, Any] = {
                         "message_id": msg.id,
                         "chat_id": assistant_chat_id,
                         "message": msg.message,
                         "usage": _usage_from_message(msg).model_dump(mode="json"),
+                        "artifacts": [
+                            ArtifactRead.model_validate(a).model_dump(mode="json")
+                            for a in msg.artifacts
+                        ],
                     }
 
                     # Name the thread once, on the first successful AI reply.

@@ -95,6 +95,13 @@ class ChatMessage(Base):
         cascade="all, delete-orphan",
         order_by="ToolMessage.created_at",
     )
+    # collected artifacts (documents, videos, websites) produced by the RAG agent for this message.
+    artifacts = relationship(
+        "Artifacts",
+        back_populates="chat_message",
+        cascade="all, delete-orphan",
+        order_by="Artifacts.created_at",
+    )
 
     created_at = Column(
         DateTime(timezone=True),
@@ -147,6 +154,34 @@ class ToolMessage(Base):
     tool_result = Column(JSON, nullable=False)
 
     chat_message = relationship("ChatMessage", back_populates="tool_messages")
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class Artifacts(Base):
+    __tablename__ = "chat_message_artifacts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chat_message_id = Column(
+        String, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    artifact_type = Column(
+        String, nullable=False
+    )  # e.g., "document", "video", "website"
+    artifact_url = Column(String, nullable=False)
+    artifact_metadata = Column(JSON, nullable=True)
+
+    chat_message = relationship("ChatMessage", back_populates="artifacts")
 
     created_at = Column(
         DateTime(timezone=True),
