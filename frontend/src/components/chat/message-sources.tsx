@@ -94,7 +94,7 @@ function SourceCard({
     );
 
   const className = cn(
-    "flex h-[104px] w-52 shrink-0 flex-col gap-1.5 rounded-xl border border-border/50",
+    "flex h-[104px] w-52 shrink-0 flex-col gap-1.5 rounded-xl border border-border",
     "bg-background/60 p-3 text-left transition-colors hover:border-border hover:bg-accent/40",
   );
 
