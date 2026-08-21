@@ -81,6 +81,7 @@ export function ArtifactsPanel({
     artifacts,
     selectedArtifactId,
     setSelectedArtifactId,
+    focusedChunkId,
     addArtifactsFromFiles,
     deleteArtifact,
   } = useChatWorkspace();
@@ -110,10 +111,10 @@ export function ArtifactsPanel({
   const showIngestionSettings = Boolean(projectId);
 
   useEffect(() => {
-    if (isIngesting || isUploading) {
+    if (isIngesting || isUploading || focusedChunkId) {
       setPreviewOpen(true);
     }
-  }, [isIngesting, isUploading]);
+  }, [isIngesting, isUploading, focusedChunkId]);
 
   const processFiles = useCallback(
     async (files: FileList | File[] | null | undefined) => {
@@ -377,6 +378,7 @@ export function ArtifactsPanel({
                         chunks={selected.chunks}
                         projectId={projectId}
                         artifactId={selected.id}
+                        focusedChunkId={focusedChunkId}
                       />
                     )}
                   </div>

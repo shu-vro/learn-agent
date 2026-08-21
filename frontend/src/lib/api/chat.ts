@@ -42,6 +42,24 @@ export type ChatTimelineItem =
   | ({ kind: "thinking" } & ChatThinkingStep)
   | ({ kind: "tool" } & ChatToolCall);
 
+export type ChatArtifactType = "document" | "website" | "video" | "image";
+
+/** A source the agent actually retrieved while answering (see backend artifact_collector). */
+export type ChatArtifact = {
+  id: string;
+  type: ChatArtifactType;
+  /** Real URL, or `reference_id=<doc_id>:<chunk_id>` for document chunks. */
+  url: string;
+  title?: string | null;
+  cited: boolean;
+  /** Documents only — resolved server-side so the preview panel can jump to it. */
+  documentId?: string | null;
+  documentName?: string | null;
+  chunkUuid?: string | null;
+  page?: string | null;
+  score?: string | null;
+};
+
 export type ChatUsageIteration = {
   iteration: number;
   input_token: number;
@@ -71,6 +89,7 @@ export type ChatBranch = {
   /** Streaming-only: step index currently receiving thinking deltas. */
   activeThinkingStep?: number | null;
   usage?: ChatUsage | null;
+  artifacts?: ChatArtifact[];
 };
 
 export type ChatMessage = {
@@ -91,6 +110,7 @@ export type ChatMessage = {
   /** Streaming-only: mirrors active branch's activeThinkingStep. */
   activeThinkingStep?: number | null;
   usage?: ChatUsage | null;
+  artifacts?: ChatArtifact[];
 };
 
 export type ChatSendOptions = {
@@ -133,6 +153,13 @@ type ApiUsage = {
   iteration_details?: ApiUsageIteration[];
 };
 
+type ApiArtifact = {
+  id: string;
+  artifact_type: string;
+  artifact_url: string;
+  artifact_metadata?: Record<string, unknown> | null;
+};
+
 type ApiChatMessage = {
   id: string;
   chat_id: string;
@@ -147,6 +174,7 @@ type ApiChatMessage = {
   usage?: ApiUsage | null;
   thinking_messages?: ApiThinking[];
   tool_messages?: ApiTool[];
+  artifacts?: ApiArtifact[];
 };
 type ApiChat = {
   id: string;
@@ -283,6 +311,41 @@ export function parseChatUsage(data: unknown): ChatUsage | null {
   };
 }
 
+function asOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function mapArtifact(artifact: ApiArtifact): ChatArtifact {
+  const meta = (artifact.artifact_metadata ?? {}) as Record<string, unknown>;
+  const type = artifact.artifact_type as ChatArtifactType;
+  return {
+    id: artifact.id,
+    type,
+    url: artifact.artifact_url,
+    title: asOptionalString(meta.title) ?? asOptionalString(meta.document_name),
+    cited: meta.cited === true,
+    documentId: asOptionalString(meta.document_id),
+    documentName: asOptionalString(meta.document_name),
+    chunkUuid: asOptionalString(meta.chunk_uuid),
+    page: asOptionalString(meta.page),
+    score: asOptionalString(meta.score),
+  };
+}
+
+export function parseChatArtifacts(data: unknown): ChatArtifact[] {
+  if (!Array.isArray(data)) {
+    return [];
+  }
+  return data
+    .filter(
+      (item): item is ApiArtifact =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as ApiArtifact).artifact_url === "string",
+    )
+    .map(mapArtifact);
+}
+
 function mapBranch(msg: ApiChatMessage): ChatBranch {
   const timeline = mapTimeline(msg);
   const thinkingParts = timeline
@@ -301,6 +364,7 @@ function mapBranch(msg: ApiChatMessage): ChatBranch {
     thinking: thinkingParts.join("\n\n"),
     tools,
     usage: mapUsage(msg),
+    artifacts: parseChatArtifacts(msg.artifacts),
   };
 }
 
@@ -335,6 +399,7 @@ export function turnsToMessages(turns: ApiTurn[]): ChatMessage[] {
         thinking: current?.thinking,
         tools: current?.tools,
         usage: current?.usage,
+        artifacts: current?.artifacts,
       });
     }
   }

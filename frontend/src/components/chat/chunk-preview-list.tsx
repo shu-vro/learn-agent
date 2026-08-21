@@ -1,7 +1,7 @@
 "use client";
 
 import { StickyNoteIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
@@ -23,6 +23,8 @@ type ChunkPreviewListProps = {
   chunks: ArtifactChunks;
   projectId?: string | null;
   artifactId?: string | null;
+  /** Chunk to scroll to and highlight (a citation was clicked). */
+  focusedChunkId?: string | null;
   className?: string;
 };
 
@@ -30,11 +32,13 @@ export function ChunkPreviewList({
   chunks,
   projectId,
   artifactId,
+  focusedChunkId,
   className,
 }: ChunkPreviewListProps) {
   const entries = sortedDisplayChunks(chunks);
   const canUseNotes = Boolean(projectId && artifactId);
 
+  const focusedRef = useRef<HTMLDivElement | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -55,6 +59,20 @@ export function ChunkPreviewList({
       cancelled = true;
     };
   }, [projectId, artifactId]);
+
+  useEffect(() => {
+    if (!focusedChunkId) {
+      return;
+    }
+    // Chunks render after the artifact loads; wait a frame before scrolling.
+    const frame = requestAnimationFrame(() => {
+      focusedRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusedChunkId]);
 
   const handleGenerate = useCallback(
     async (chunkId: string, regenerate = false) => {
@@ -114,10 +132,17 @@ export function ChunkPreviewList({
         const error = errors[chunk.id];
         const hasNote = typeof note === "string" && note.length > 0;
 
+        const isFocused = chunk.id === focusedChunkId;
+
         return (
           <div
             key={chunk.id}
-            className="overflow-hidden rounded-xl border border-border/40 bg-background/40"
+            ref={isFocused ? focusedRef : undefined}
+            className={cn(
+              "overflow-hidden rounded-xl border border-border/40 bg-background/40 transition-colors",
+              isFocused &&
+                "border-primary/60 bg-primary/5 ring-1 ring-primary/40",
+            )}
           >
             {chunk.type === "image" ? (
               <div className="border-border/40 border-b px-4 py-2">

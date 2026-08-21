@@ -13,6 +13,7 @@ import {
 
 import {
   type Artifact,
+  type ChatArtifact,
   type ChatMessage,
   type ChatTimelineItem,
   type ChatToolCall,
@@ -24,6 +25,7 @@ import {
   listArtifacts,
   listMessages,
   listThreads,
+  parseChatArtifacts,
   parseChatUsage,
   streamChat,
   type Thread,
@@ -54,6 +56,10 @@ type ChatWorkspaceValue = {
   artifacts: Artifact[];
   selectedArtifactId: string | null;
   setSelectedArtifactId: (id: string | null) => void;
+  /** Chunk the preview panel should scroll to and highlight, if any. */
+  focusedChunkId: string | null;
+  /** Open a document citation in the preview panel. */
+  focusChunk: (documentId: string, chunkId: string) => void;
   addArtifactFromFile: (
     file: File,
     ingestion?: IngestionUploadOptions,
@@ -100,6 +106,7 @@ function patchAssistantBranch(
     streaming: boolean;
     activeThinkingStep: number | null;
     usage: ChatUsage | null;
+    artifacts: ChatArtifact[];
   }>,
 ): ChatMessage[] {
   return messages.map((msg) => {
@@ -125,6 +132,7 @@ function patchAssistantBranch(
       streaming: current.streaming,
       activeThinkingStep: current.activeThinkingStep,
       usage: current.usage,
+      artifacts: current.artifacts,
     };
   });
 }
@@ -162,6 +170,7 @@ export function ChatWorkspaceProvider({
     Record<string, ChatMessage[]>
   >({});
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
@@ -573,6 +582,7 @@ export function ChatWorkspaceProvider({
             if (event === "done" && assistantChatId && branchId) {
               const finalText = String(data.message ?? "");
               const usage = parseChatUsage(data.usage);
+              const artifacts = parseChatArtifacts(data.artifacts);
               setMessagesByThread((prev) =>
                 updateThreadMessages(prev, workingThreadId, (msgs) =>
                   patchAssistantBranch(msgs, assistantChatId, branchId, {
@@ -580,6 +590,7 @@ export function ChatWorkspaceProvider({
                     streaming: false,
                     activeThinkingStep: null,
                     usage,
+                    artifacts,
                   }).map((msg) =>
                     msg.id === assistantChatId
                       ? {
@@ -587,6 +598,7 @@ export function ChatWorkspaceProvider({
                           streaming: false,
                           activeThinkingStep: null,
                           usage,
+                          artifacts,
                         }
                       : msg,
                   ),
@@ -957,6 +969,11 @@ export function ChatWorkspaceProvider({
     [projectId, selectedArtifactId],
   );
 
+  const focusChunk = useCallback((documentId: string, chunkId: string) => {
+    setSelectedArtifactId(documentId);
+    setFocusedChunkId(chunkId);
+  }, []);
+
   const value = useMemo<ChatWorkspaceValue>(
     () => ({
       projectId,
@@ -974,6 +991,8 @@ export function ChatWorkspaceProvider({
       artifacts,
       selectedArtifactId,
       setSelectedArtifactId,
+      focusedChunkId,
+      focusChunk,
       addArtifactFromFile,
       addArtifactsFromFiles,
       deleteArtifact,
@@ -992,6 +1011,8 @@ export function ChatWorkspaceProvider({
       deleteThread,
       artifacts,
       selectedArtifactId,
+      focusedChunkId,
+      focusChunk,
       addArtifactFromFile,
       addArtifactsFromFiles,
       deleteArtifact,

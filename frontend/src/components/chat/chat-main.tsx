@@ -2,7 +2,7 @@
 
 import { CopyIcon, RefreshCcwIcon, Volume2Icon } from "lucide-react";
 import dynamic from "next/dynamic";
-import type { FormEvent } from "react";
+import type { FormEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import {
   Conversation,
@@ -36,6 +36,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import { useChatWorkspace } from "@/components/chat/chat-context";
+import { MessageSources } from "@/components/chat/message-sources";
 import {
   messageAnchorId,
   type ReadAloud,
@@ -44,6 +45,7 @@ import {
 } from "@/components/chat/read-aloud";
 import { UsageDetailsButton } from "@/components/chat/usage-details";
 import type {
+  ChatArtifact,
   ChatMessage,
   ChatTimelineItem,
   ChatToolCall,
@@ -169,6 +171,7 @@ function AssistantBody({
   tools,
   streaming,
   activeThinkingStep,
+  artifacts,
 }: {
   message: ChatMessage;
   branchContent: string;
@@ -177,7 +180,26 @@ function AssistantBody({
   tools?: ChatToolCall[];
   streaming?: boolean;
   activeThinkingStep?: number | null;
+  artifacts?: ChatArtifact[];
 }) {
+  const { focusChunk } = useChatWorkspace();
+  // Document citations render as `[Source n](reference_id=<doc>:<chunk>)`; open
+  // them in the preview panel instead of letting the browser follow the href.
+  const onCitationClick = (event: MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as HTMLElement).closest("a");
+    const href = anchor?.getAttribute("href") ?? "";
+    if (!href.startsWith("reference_id=")) {
+      return;
+    }
+    event.preventDefault();
+    const artifact = (artifacts ?? message.artifacts ?? []).find(
+      (a) => a.url === href,
+    );
+    if (artifact?.documentId && artifact.chunkUuid) {
+      focusChunk(artifact.documentId, artifact.chunkUuid);
+    }
+  };
+
   const items: ChatTimelineItem[] =
     timeline && timeline.length > 0
       ? timeline
@@ -211,9 +233,13 @@ function AssistantBody({
       })}
       {branchContent || streaming ? (
         <MessageContent>
-          <MessageResponse isAnimating={Boolean(streaming)}>
-            {branchContent || (streaming ? "…" : "")}
-          </MessageResponse>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: click delegation for markdown-rendered anchors, which stay keyboard-activatable themselves */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: the anchors handle keyboard activation */}
+          <div onClick={onCitationClick}>
+            <MessageResponse isAnimating={Boolean(streaming)}>
+              {branchContent || (streaming ? "…" : "")}
+            </MessageResponse>
+          </div>
         </MessageContent>
       ) : null}
     </>
@@ -243,6 +269,7 @@ function AssistantMessage({
   const activeThinkingStep =
     current?.activeThinkingStep ?? message.activeThinkingStep;
   const usage = current?.usage ?? message.usage;
+  const artifacts = current?.artifacts ?? message.artifacts ?? [];
   const regenerateId = current?.id ?? message.id;
 
   const reading = reader.activeId === regenerateId;
@@ -266,6 +293,7 @@ function AssistantMessage({
                   tools={branch.tools}
                   streaming={branch.streaming}
                   activeThinkingStep={branch.activeThinkingStep}
+                  artifacts={branch.artifacts}
                 />
               </div>
             ))}
@@ -303,6 +331,7 @@ function AssistantMessage({
               {usage ? <UsageDetailsButton usage={usage} /> : null}
             </div>
           </MessageActions>
+          <MessageSources artifacts={artifacts} content={content} />
           {reading ? <ReadAloudControls reader={reader} /> : null}
         </MessageBranch>
       </Message>
@@ -319,6 +348,7 @@ function AssistantMessage({
         tools={tools}
         streaming={streaming}
         activeThinkingStep={activeThinkingStep}
+        artifacts={artifacts}
       />
       <MessageActions>
         <MessageAction
@@ -346,6 +376,7 @@ function AssistantMessage({
         </MessageAction>
         {usage ? <UsageDetailsButton usage={usage} /> : null}
       </MessageActions>
+      <MessageSources artifacts={artifacts} content={content} />
       {reading ? <ReadAloudControls reader={reader} /> : null}
     </Message>
   );
