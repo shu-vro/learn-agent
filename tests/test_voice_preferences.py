@@ -72,3 +72,30 @@ def test_code_fences_are_dropped():
 def test_empty_and_syntax_only_markdown_yield_nothing():
     assert markdown_to_speech("") == ""
     assert markdown_to_speech("---") == ""
+
+
+def test_latex_delimiters_are_not_read_aloud():
+    assert markdown_to_speech("The energy is $$E = mc^2$$ here.") == (
+        "The energy is E = mc squared here."
+    )
+    assert markdown_to_speech("Inline \\(a + b\\) and \\[c = d\\].") == (
+        "Inline a + b and c = d ."
+    )
+
+
+def test_latex_operators_become_words():
+    spoken = markdown_to_speech("We know $$\\frac{a}{b} \\le \\alpha$$ holds.")
+    assert spoken == "We know a over b less than or equal to alpha holds."
+
+
+def test_subscripts_survive_markdown_emphasis():
+    # Without the math pass, markdown reads `_1$$ and $$x_` as emphasis.
+    assert markdown_to_speech("Let $$x_1$$ and $$x_2$$ differ.") == (
+        "Let x sub 1 and x sub 2 differ."
+    )
+
+
+def test_currency_is_left_alone():
+    assert markdown_to_speech("It costs $5 and $10 total.") == (
+        "It costs $5 and $10 total."
+    )
