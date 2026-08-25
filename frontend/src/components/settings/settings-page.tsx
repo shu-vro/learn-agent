@@ -94,7 +94,7 @@ const NAV: {
   {
     id: "ingestion",
     label: "Document ingestion",
-    description: "PDF upload defaults",
+    description: "Document upload defaults",
     icon: FileScanIcon,
     iconClass: "bg-amber-500/15 text-amber-500",
   },
@@ -472,8 +472,8 @@ export function SettingsPage() {
                   {activeSection === "ingestion" && (
                     <div className="pb-2">
                       <p className="mb-2 text-muted-foreground text-xs">
-                        Defaults for PDF uploads. Override per upload from the
-                        files panel gear icon.
+                        Defaults for document uploads. Override per upload from
+                        the files panel gear icon.
                       </p>
                       <IngestionSettingsFields
                         layout="stacked"

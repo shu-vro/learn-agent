@@ -21,7 +21,7 @@ from src.utils.ingestion_progress import (
     clear_ingestion_progress,
     set_ingestion_progress,
 )
-from src.module.upload_docs import ingest_uploaded_pdf_to_qdrant
+from src.module.upload_docs import ingest_uploaded_file_to_qdrant
 from src.db.models.project import Project
 from src.db.models.project_document import ProjectDocument
 from sqlalchemy import select
@@ -224,10 +224,10 @@ def process_artifact_upload(
         set_ingestion_progress(
             document_id,
             stage="extracting",
-            label="Parsing PDF and extracting content",
+            label="Parsing document and extracting content",
             progress=35,
         )
-        extraction_result = ingest_uploaded_pdf_to_qdrant(
+        extraction_result = ingest_uploaded_file_to_qdrant(
             file_path=Path(file_path),
             document_id=document_id,
             project_id=project_id,

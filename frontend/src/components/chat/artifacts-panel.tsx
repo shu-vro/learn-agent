@@ -52,6 +52,23 @@ import { Spinner } from "@/components/ui/spinner";
 import type { IngestionUploadOptions } from "@/lib/api/preferences";
 import { cn } from "@/lib/utils";
 
+// Extensions Docling parses out of the box; the backend rejects anything else
+// (see SUPPORTED_UPLOAD_SUFFIXES in src/config/constants.py).
+const SUPPORTED_UPLOAD_ACCEPT = [
+  ".pdf",
+  ".docx,.dotx,.docm,.dotm",
+  ".pptx,.potx,.ppsx,.pptm,.potm,.ppsm",
+  ".xlsx,.xlsm",
+  ".html,.htm,.xhtml",
+  ".md,.txt,.text,.qmd,.rmd",
+  ".adoc,.asciidoc,.asc",
+  ".tex,.latex",
+  ".csv,.json,.xml,.nxml,.xbrl,.dclg",
+  ".jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp",
+  ".wav,.mp3,.m4a,.aac,.ogg,.flac,.mp4,.avi,.mov",
+  ".vtt,.eml,.epub,.gz",
+].join(",");
+
 function isDesktopViewport() {
   if (typeof window === "undefined") {
     return false;
@@ -155,7 +172,8 @@ export function ArtifactsPanel({
           <DialogHeader>
             <DialogTitle>Add files</DialogTitle>
             <DialogDescription>
-              Drag PDF or Markdown files here, or choose them from your device.
+              Drag documents here, or choose them from your device. PDF, Office
+              files, images, HTML, Markdown and more are supported.
             </DialogDescription>
           </DialogHeader>
           <section
@@ -183,7 +201,7 @@ export function ArtifactsPanel({
               <>
                 <UploadIcon className="size-8 text-muted-foreground" />
                 <p className="text-muted-foreground text-sm">
-                  Drop PDF or Markdown files to upload
+                  Drop files to upload
                 </p>
                 <Button
                   type="button"
@@ -203,7 +221,7 @@ export function ArtifactsPanel({
           <DialogHeader>
             <DialogTitle>Upload settings</DialogTitle>
             <DialogDescription>
-              Options used for PDF ingestion on this upload.
+              Options used for document ingestion on this upload.
             </DialogDescription>
           </DialogHeader>
           <IngestionSettingsFields
@@ -240,7 +258,7 @@ export function ArtifactsPanel({
             ref={inputRef}
             type="file"
             className="hidden"
-            accept=".pdf,.md,.markdown,application/pdf,text/markdown"
+            accept={SUPPORTED_UPLOAD_ACCEPT}
             multiple
             onChange={async (e) => {
               await processFiles(e.target.files);

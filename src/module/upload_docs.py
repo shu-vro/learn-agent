@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 from langchain_core.documents import Document
 
-from src.lib.docling_lib import docling_pdf_extractor
+from src.lib.docling_lib import docling_extractor
 from src.lib.paper_fingerprint import _sha256_for_file
 from src.lib.paper_fingerprint import PaperFingerprint, fingerprint_paper_source
 from src.vector_store.qdrant_store import (
@@ -185,7 +185,7 @@ def ingest_paper_to_qdrant(
 
         print(f"New paper hash detected: {paper_sha256}")
 
-        documents = docling_pdf_extractor(
+        documents = docling_extractor(
             file_path=str(resolved_paper.local_path),
             artifacts_root=artifacts_root,
             content_hash=paper_sha256,
@@ -262,7 +262,7 @@ def ingest_paper_to_qdrant(
 
 
 @measure_time
-def ingest_uploaded_pdf_to_qdrant(
+def ingest_uploaded_file_to_qdrant(
     *,
     file_path: str | Path,
     document_id: str,
@@ -290,7 +290,7 @@ def ingest_uploaded_pdf_to_qdrant(
         f"upload ingest: {use_vision_model=}, {use_image_descriptions=}, "
         f"{use_formula_transcription=}, {selected_equation_ocr_lib=}"
     )
-    documents = docling_pdf_extractor(
+    documents = docling_extractor(
         file_path=str(resolved_path),
         artifacts_root=artifacts_root,
         content_hash=_sha256_for_file(resolved_path),

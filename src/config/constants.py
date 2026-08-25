@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+
+from docling.datamodel.base_models import FormatToExtensions
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,6 +14,13 @@ DEFAULT_PAPER_SOURCES = [
     # "https://arxiv.org/pdf/2603.15031",
     # "https://arxiv.org/pdf/2512.24695",
 ]
+# Every extension Docling parses out of the box. Compound extensions
+# ("tar.gz", "dclg.xml") collapse to their last component to match ``Path.suffix``.
+SUPPORTED_UPLOAD_SUFFIXES = frozenset[str](
+    f".{extension.rsplit('.', 1)[-1].lower()}"
+    for extensions in FormatToExtensions.values()
+    for extension in extensions
+)
 DEFAULT_ARTIFACTS_DIR = Path("data/artifacts")
 DEFAULT_DOWNLOADS_DIR = Path("data/downloads")
 # DEFAULT_EMBEDDING_MODEL = "hf:Octen/Octen-Embedding-0.6B"

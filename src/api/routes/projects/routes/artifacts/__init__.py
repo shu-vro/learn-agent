@@ -15,7 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.constants import DEFAULT_OCR_LIB, DEFAULT_QDRANT_COLLECTION
+from src.config.constants import (
+    DEFAULT_OCR_LIB,
+    DEFAULT_QDRANT_COLLECTION,
+    SUPPORTED_UPLOAD_SUFFIXES,
+)
 from src.db.models.preferences import Preferences
 from src.schemas.preferences import (
     IngestionPreferences,
@@ -42,7 +46,6 @@ from src.utils.ingestion_progress import get_ingestion_progress, set_ingestion_p
 from src.utils.api.BaseResponse import BaseResponse
 from src.utils.api.artifact_markdown_fixer import rewrite_chunk_image_urls
 
-ALLOWED_SUFFIXES = frozenset[str]({".pdf"})
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 router = APIRouter(tags=["artifacts"])
@@ -209,10 +212,13 @@ class _ParsedUpload:
 def _validate_upload_file(file: UploadFile, body: bytes) -> _ParsedUpload:
     raw_name = file.filename or "upload"
     suffix = _suffix_for_upload(raw_name)
-    if suffix not in ALLOWED_SUFFIXES:
+    if suffix not in SUPPORTED_UPLOAD_SUFFIXES:
         raise HTTPException(
             status_code=400,
-            detail=f"Only .pdf files are allowed ({raw_name!r}).",
+            detail=(
+                f"Unsupported file type ({raw_name!r}). Allowed: "
+                f"{', '.join(sorted(SUPPORTED_UPLOAD_SUFFIXES))}."
+            ),
         )
     if len(body) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -359,7 +365,7 @@ async def _upload_single_artifact(
         await session.commit()
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to queue PDF for processing ({upload.raw_name!r}).",
+            detail=f"Failed to queue file for processing ({upload.raw_name!r}).",
         ) from err
 
     return await _artifact_read_for_document(document, session), True

@@ -219,10 +219,6 @@ def artifact_markdown_s3_key(doc_id: str, *, s3_prefix: str = "artifacts") -> st
     return f"{artifact_s3_prefix(doc_id, s3_prefix=s3_prefix)}/{doc_id}.md"
 
 
-def artifact_pdf_s3_key(doc_id: str, *, s3_prefix: str = "artifacts") -> str:
-    return f"{artifact_s3_prefix(doc_id, s3_prefix=s3_prefix)}/{doc_id}.pdf"
-
-
 def rsa_signer(message):
     """Cryptographically sign the CloudFront policy structure using your private key."""
     with open(PRIVATE_KEY_PATH, "rb") as key_file:

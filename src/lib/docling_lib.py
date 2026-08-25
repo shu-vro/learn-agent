@@ -14,7 +14,11 @@ from docling.datamodel.pipeline_options import (
     OcrMacOptions,
 )
 from docling.datamodel.vlm_engine_options import TransformersVlmEngineOptions
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.document_converter import (
+    DocumentConverter,
+    ImageFormatOption,
+    PdfFormatOption,
+)
 from docling_core.types.doc import FormulaItem, ImageRefMode, PictureItem
 from langchain_core.documents import Document
 
@@ -155,6 +159,26 @@ def _cleanup_docling_export_junk(doc_dir: Path, doc_filename: str) -> None:
         shutil.rmtree(nested_data_dir)
 
 
+def _supported_ocrmac_languages(preferred: list[str]) -> list[str]:
+    """Keep only languages macOS Vision has installed.
+
+    Vision rejects the whole recognition request when any requested language is
+    missing, which fails the OCR stage for every page.
+    """
+    try:
+        import Vision
+
+        supported, _error = (
+            Vision.VNRecognizeTextRequest.alloc()
+            .init()
+            .supportedRecognitionLanguagesAndReturnError_(None)
+        )
+        available = [lang for lang in preferred if lang in supported]
+    except Exception:
+        available = []
+    return available or ["en-US"]
+
+
 @measure_time
 def _build_docling_converter() -> DocumentConverter:
     pdf_pipeline_options = PdfPipelineOptions()
@@ -179,20 +203,23 @@ def _build_docling_converter() -> DocumentConverter:
 
     if sys.platform == "darwin":
         pdf_pipeline_options.ocr_options = OcrMacOptions(
-            lang=["en-US", "bn-BD"],
+            lang=_supported_ocrmac_languages(["en-US", "bn-BD"]),
             force_full_page_ocr=True,
         )
 
+    # Every other InputFormat Docling supports keeps its default option; only the
+    # two formats driven by the PDF pipeline need our tuned options.
     return DocumentConverter(
         format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options)
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options),
+            InputFormat.IMAGE: ImageFormatOption(pipeline_options=pdf_pipeline_options),
         }
     )
 
 
 # the extractor takes a massive amount of time (200+s for 15 page)
 @measure_time
-def docling_pdf_extractor(
+def docling_extractor(
     file_path: str,
     artifacts_root: str | Path = "data/artifacts",
     image_describer: Callable[[Path, str], str] | None = None,
@@ -391,8 +418,8 @@ def docling_pdf_extractor(
                 upload_artifacts_directory_to_s3,
             )
 
-            pdf_filename = doc_artifacts_dir / f"{doc_id}.pdf"
-            shutil.copy2(resolved_file_path, pdf_filename)
+            source_copy = doc_artifacts_dir / f"{doc_id}{resolved_file_path.suffix}"
+            shutil.copy2(resolved_file_path, source_copy)
 
             with measure_time("s3_upload", tracker=time_tracker):
                 s3_artifact_keys = upload_artifacts_directory_to_s3(
