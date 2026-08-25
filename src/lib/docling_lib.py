@@ -1,6 +1,6 @@
-import os
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import Callable
 from src.utils.time_utils import measure_time
@@ -177,14 +177,11 @@ def _build_docling_converter() -> DocumentConverter:
         engine_options=TransformersVlmEngineOptions(),
     )
 
-    pdf_pipeline_options.ocr_options = OcrMacOptions(
-        lang=["en-US", "bn-BD"],
-        force_full_page_ocr=True,
-    )
-
-    # only if user is in mac
-    if os.name == "posix" and "darwin" in os.uname().sysname.lower():
-        pdf_pipeline_options.ocr_options = OcrMacOptions()
+    if sys.platform == "darwin":
+        pdf_pipeline_options.ocr_options = OcrMacOptions(
+            lang=["en-US", "bn-BD"],
+            force_full_page_ocr=True,
+        )
 
     return DocumentConverter(
         format_options={
