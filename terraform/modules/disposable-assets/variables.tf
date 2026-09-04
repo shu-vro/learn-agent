@@ -21,7 +21,7 @@ variable "bucket_name" {
 }
 
 variable "use_localstack" {
-  description = "Whether this stack targets LocalStack (affects CloudFront deployment wait behavior)."
+  description = "Whether this stack targets the local S3 emulator. CloudFront resources are skipped when true; the app falls back to S3 presigned URLs."
   type        = bool
   default     = false
 }

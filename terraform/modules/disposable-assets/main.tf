@@ -5,8 +5,14 @@ locals {
   use_acm_certificate = var.acm_certificate_arn != ""
   is_prod_environment = var.environment == "prod"
 
+  # The local emulator (floci 2.0.1) answers CreateDistribution/GetDistribution
+  # with a DefaultCacheBehavior that drops ForwardedValues and MinTTL, which makes
+  # the AWS provider panic on the read after create. Skip CloudFront there.
+  enable_cloudfront = !var.use_localstack
+
   enable_signing = (
-    var.enable_cloudfront_signing
+    local.enable_cloudfront
+    && var.enable_cloudfront_signing
     && var.cloudfront_public_key != null
     && var.cloudfront_public_key != ""
   )
@@ -74,6 +80,7 @@ resource "aws_cloudfront_key_group" "signing_group" {
 }
 
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
+  count                             = local.enable_cloudfront ? 1 : 0
   name                              = "${local.name_prefix}-s3-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
@@ -81,6 +88,7 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
 }
 
 resource "aws_cloudfront_distribution" "cdn" {
+  count               = local.enable_cloudfront ? 1 : 0
   enabled             = true
   is_ipv6_enabled     = true
   wait_for_deployment = var.wait_for_deployment
@@ -88,7 +96,7 @@ resource "aws_cloudfront_distribution" "cdn" {
 
   origin {
     domain_name              = local.private_storage.bucket_regional_domain_name
-    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac[0].id
     origin_id                = "S3Origin"
   }
 
@@ -122,6 +130,7 @@ resource "aws_cloudfront_distribution" "cdn" {
 }
 
 resource "aws_s3_bucket_policy" "allow_cloudfront" {
+  count  = local.enable_cloudfront ? 1 : 0
   bucket = local.private_storage.id
 
   policy = jsonencode({
@@ -137,7 +146,7 @@ resource "aws_s3_bucket_policy" "allow_cloudfront" {
         Resource = "${local.private_storage.arn}/*"
         Condition = {
           StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.cdn.arn
+            "AWS:SourceArn" = aws_cloudfront_distribution.cdn[0].arn
           }
         }
       }

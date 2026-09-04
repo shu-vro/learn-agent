@@ -9,18 +9,18 @@ output "bucket_arn" {
 }
 
 output "cloudfront_domain" {
-  description = "CloudFront distribution domain name."
-  value       = aws_cloudfront_distribution.cdn.domain_name
+  description = "CloudFront distribution domain name (null on LocalStack)."
+  value       = one(aws_cloudfront_distribution.cdn[*].domain_name)
 }
 
 output "cloudfront_distribution_arn" {
-  description = "CloudFront distribution ARN."
-  value       = aws_cloudfront_distribution.cdn.arn
+  description = "CloudFront distribution ARN (null on LocalStack)."
+  value       = one(aws_cloudfront_distribution.cdn[*].arn)
 }
 
 output "cloudfront_distribution_id" {
-  description = "CloudFront distribution ID."
-  value       = aws_cloudfront_distribution.cdn.id
+  description = "CloudFront distribution ID (null on LocalStack)."
+  value       = one(aws_cloudfront_distribution.cdn[*].id)
 }
 
 output "public_key_id" {
@@ -29,6 +29,6 @@ output "public_key_id" {
 }
 
 output "origin_access_control_id" {
-  description = "CloudFront origin access control ID for the S3 origin."
-  value       = aws_cloudfront_origin_access_control.s3_oac.id
+  description = "CloudFront origin access control ID for the S3 origin (null on LocalStack)."
+  value       = one(aws_cloudfront_origin_access_control.s3_oac[*].id)
 }

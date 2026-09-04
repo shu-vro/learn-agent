@@ -21,8 +21,7 @@ terraform apply
 Outputs feed application config:
 
 - `bucket_name` → `AWS_S3_BUCKET`
-- `cloudfront_domain` → `AWS_CLOUDFRONT_DOMAIN`
-- `public_key_id` is `null` locally (app falls back to S3 presigned URLs)
+- `cloudfront_domain`, `cloudfront_distribution_id` and `public_key_id` are `null` locally. The emulator's CloudFront is incomplete (floci 2.0.1 returns a `DefaultCacheBehavior` with no `ForwardedValues`/`MinTTL`, so `terraform-provider-aws` panics on the read after create), so the module skips every CloudFront resource when `use_localstack = true` and the app falls back to S3 presigned URLs. Leave `AWS_CLOUDFRONT_DOMAIN` at its `http://localhost:4566` default, and set `use_localstack = false` once the emulator serves CloudFront correctly.
 
 LocalStack provider settings (mock keys, endpoint overrides) live only in `envs/local/providers.tf`.
 
