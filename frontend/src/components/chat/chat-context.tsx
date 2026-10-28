@@ -162,9 +162,12 @@ function syncBranchDerived<T extends { timeline?: ChatTimelineItem[] }>(
 export function ChatWorkspaceProvider({
   children,
   projectId = null,
+  initialThreadId = null,
 }: {
   children: React.ReactNode;
   projectId?: string | null;
+  /** Thread from the `?thread=` URL param; falls back to the latest thread. */
+  initialThreadId?: string | null;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState("");
@@ -193,8 +196,18 @@ export function ChatWorkspaceProvider({
         return;
       }
       setThreads(t);
-      const firstId = t[0]?.id ?? "";
-      setActiveThreadId(firstId);
+      const latest = t.reduce<Thread | undefined>(
+        (best, th) =>
+          !best ||
+          new Date(th.updated_at).getTime() >
+            new Date(best.updated_at).getTime()
+            ? th
+            : best,
+        undefined,
+      );
+      setActiveThreadId(
+        t.find((th) => th.id === initialThreadId)?.id ?? latest?.id ?? "",
+      );
       const nextMsgs: Record<string, ChatMessage[]> = {};
       for (const th of t) {
         nextMsgs[th.id] = await listMessages(projectId, th.id);
@@ -209,7 +222,17 @@ export function ChatWorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, initialThreadId]);
+
+  // Mirror the active thread into the URL so reloads and shared links reopen
+  // it. replaceState keeps Next from refetching the page on every switch.
+  useEffect(() => {
+    if (!projectId || !activeThreadId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("thread") === activeThreadId) return;
+    url.searchParams.set("thread", activeThreadId);
+    window.history.replaceState(null, "", url);
+  }, [projectId, activeThreadId]);
 
   const processingArtifactIdsRef = useRef<string[]>([]);
   const processingArtifactKey = useMemo(() => {
