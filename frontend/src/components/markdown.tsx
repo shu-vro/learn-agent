@@ -7,6 +7,7 @@ import { mermaid } from "@streamdown/mermaid";
 import { type ComponentProps, memo } from "react";
 import { Streamdown } from "streamdown";
 
+import { InteractiveArtifact } from "@/components/interactive-artifact";
 import { normalizeMathDelimiters } from "@/lib/math-markdown";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +15,13 @@ const code = createCodePlugin({
   themes: ["github-light", "github-dark"],
 });
 
-const plugins = { cjk, code, math, mermaid };
+const plugins = {
+  cjk,
+  code,
+  math,
+  mermaid,
+  renderers: [{ language: "artifact", component: InteractiveArtifact }],
+};
 
 export type MarkdownProps = ComponentProps<typeof Streamdown>;
 
