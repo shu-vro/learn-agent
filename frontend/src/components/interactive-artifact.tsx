@@ -16,7 +16,9 @@ import { CodeBlock } from "@/components/ai-elements/code-block";
 // Reports document height to the parent so the iframe grows with its content.
 const RESIZE_SCRIPT = `<script>(()=>{const post=()=>parent.postMessage({__artifactHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);})();</script>`;
 
-const BASE_STYLE = `<style>:root{color-scheme:light dark}body{margin:0;padding:16px;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.5}</style>`;
+// Artifacts always render on a light canvas: models reliably style for light
+// backgrounds, and inheriting the app's dark scheme washes out their text.
+const BASE_STYLE = `<style>:root{color-scheme:light}body{margin:0;padding:16px;background:#fff;color:#111;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.5}</style>`;
 
 function buildDocument(code: string): string {
   const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${BASE_STYLE}`;
@@ -114,7 +116,7 @@ export function InteractiveArtifact({
       )}
       {!isIncomplete && (
         <iframe
-          className={showCode ? "hidden" : "w-full border-0 bg-background"}
+          className={showCode ? "hidden" : "w-full border-0 bg-white"}
           ref={frameRef}
           sandbox="allow-scripts allow-popups allow-modals allow-forms"
           srcDoc={srcDoc}
