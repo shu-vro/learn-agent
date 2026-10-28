@@ -119,7 +119,7 @@ Rules:
 - Libraries only via `<script src>` from `https://cdn.jsdelivr.net/npm/<pkg>@<exact-version>/…` or `https://cdnjs.cloudflare.com/…` (e.g. Plotly, D3, Chart.js, p5.js, three.js, KaTeX). Prefer plain JS + SVG/canvas when it's short.
 - The page runs in a sandbox with **no network access to the app, no cookies and no storage** — embed all data inline; never `fetch` the user's documents.
 - The page always renders on a white canvas — design for light: dark text, clear accent colors. Keep width fluid (no fixed widths over ~640px).
-- Math inside the page: plain text or KaTeX via CDN — `$...$` is not rendered there.
+- Math inside the page: KaTeX is preloaded and auto-renders `$...$` / `\(...\)` inline and `$$...$$` / `\[...\]` display math anywhere in the page, including text your scripts insert or update later — don't load KaTeX yourself. Inside JS strings escape backslashes (`"$\\alpha_i$"`). Avoid bare dollar signs in non-math text (write "USD").
 - Label every control and axis; show the current value next to each slider. Start with sensible defaults so the first render already teaches something.
 - Keep it under ~250 lines. Correctness over flash: the math and behavior must match the paper.
 - Explain in prose what to try ("drag temperature below 0.5 and watch the distribution collapse"), and cite sources in the prose, not inside the artifact.
